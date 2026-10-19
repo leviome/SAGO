@@ -1,0 +1,21 @@
+# Use the existing SAGO CUDA environment, or install PyTorch for your CUDA version first.
+Flask>=3.0,<4
+numpy<2
+Pillow
+opencv-python
+plyfile
+scipy
+matplotlib
+open3d
+camlab
+sympy
+torch
+torchvision
+einops
+timm
+tqdm
+
+# Local GroundingDINO text localization for SAM2 (vendored source).
+transformers>=4.40,<5
+addict
+yapf

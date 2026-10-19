@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0
+
+- English UI by default, with a persistent English / Chinese switch.
+- SAM2, SAM3 and SAM3.1 options; SAM2 text prompts through GroundingDINO.
+- Automatic 2D segmentation updates and separate model-loading / segmentation timing.
+- Continuous multi-object segmentation, dense Gaussian ID persistence, naming,
+  merging, renumbering and independent foreground / background layers.
+- Visible-surface ID correction with accumulated clicks or box selection,
+  highlight previews, explicit confirmation and undo / redo.
+- Unified rasterized selection footprints and pixel coordinates for correction.
+- RGB, Splats, Points and Depth render modes.
+- Three-point ground calibration, persistent up vectors, upright 3D boxes,
+  V-Drone paths, camera frustums and per-view segmentation previews.
+- Compact, collapsible black / red controls and convenient scene selection.
+
+The source release excludes pretrained weights, local environments, scenes,
+and generated outputs. See `models/README.md` for checkpoint setup.
+
 ## v1.0 — 2026-09-24
 
 首个 SAGO Web 发布版本（npm 包版本 `1.0.0`），基于 SuperSplat 3.3.1。

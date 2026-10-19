@@ -1,23 +1,33 @@
-.claude
-.cursor
-.DS_Store
-.idea
-.npmrc
-.vscode
-dist
-node_modules
-static/models/slimsam/
+__pycache__/
+*.pyc
+.cache/
+outputs/
+debug/
+models/*.pt
+.venv/
 test-results/
-playwright-report/
-artifacts/
-static/models/sam2-large/
 
-# Local credentials, caches and release output
+.venv-sam3/
+
+# Machine-local configuration and build artifacts
+.agents/
+.aws/
+.codex/
+.idea/
+.pytest_cache/
+node_modules/
+build/
+dist/
+*.egg-info/
+*.so
+*.o
 .env
 .env.*
 !.env.example
-*.pem
-*.key
-__pycache__/
-*.py[cod]
-release/
+
+# External checkpoints are configured separately, never committed
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+models/**/*.bin

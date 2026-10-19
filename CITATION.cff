@@ -1,13 +1,13 @@
 cff-version: 1.2.0
 message: "If you use SAGO Web or the SAGO method in your research, please cite the SAGO paper below."
-title: "SAGO Web: Browser Tool for Segment Any Gaussians Online"
+title: "SAGO Web: Python/CUDA Backend and Browser UI for Segment Any Gaussians Online"
 type: software
 authors:
   - name: "SAGO Web contributors"
 repository-code: "https://github.com/leviome/SAGO-Web"
 url: "https://github.com/leviome/SAGO-Web"
-version: "1.0.0"
-date-released: "2026-09-24"
+version: "2.0.0"
+date-released: "2026-10-19"
 license: MIT
 preferred-citation:
   type: conference-paper

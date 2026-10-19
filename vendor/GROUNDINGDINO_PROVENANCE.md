@@ -1,0 +1,7 @@
+# GroundingDINO provenance
+
+Copied from the local SAGO `sago_core/GroundingDINO/groundingdino` source tree. Its base Git revision is `856dde20aee659246248e20734ef9ba5214f5e44`; the source includes SAGO's existing image/text split and `half_forward` modifications. The original source tree was read only. Upstream: https://github.com/IDEA-Research/GroundingDINO . Apache-2.0 license is retained in `GroundingDINO/LICENSE` with per-file copyright headers.
+
+Only Python/C++ source and config files are vendored. No parent Git metadata, build products, Python caches or precompiled extensions are required. The local Swin-T detection checkpoint was copied into `models/groundingdino_swint_ogc.pth`; cached BERT model/tokenizer assets were copied (dereferenced) into `models/bert-base-uncased`. All runtime model assets are inside SAGO_web.
+
+Local compatibility patch: `ms_deform_attn.py` sets `_C = None` when the extension is unavailable and uses the existing PyTorch deformable-attention implementation on either CPU or CUDA. This avoids an ABI-specific compiled dependency. The checkpoint's unused training-only `label_enc.weight` and legacy nonpersistent `bert.embeddings.position_ids` are permitted during loading; other missing/unexpected keys fail loading. Application integration is in `backend/grounding.py` and uses local BERT paths, RGB image normalization and the same 800/1333 resize as the original inference helper.

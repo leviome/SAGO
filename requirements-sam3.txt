@@ -1,0 +1,13 @@
+# Install in a separate environment with a CUDA build of torch>=2.5 and matching torchvision.
+# See vendor/SAM3_PROVENANCE.md for compatibility patches.
+-e ./vendor/sam3
+setuptools<81
+numpy>=1.26,<2
+Pillow
+einops
+pycocotools
+opencv-python
+psutil
+decord
+hydra-core
+scipy
