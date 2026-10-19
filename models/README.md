@@ -3,7 +3,7 @@
 Checkpoints are external data and are not included in the GitHub source release.
 
 - **SAM2:** place the original `sam2_hiera_large.pt` in this directory, or pass
-  `python run.py --checkpoint /path/to/sam2_hiera_large.pt`.
+  `python run.py --checkpoint ./models/sam2_hiera_large.pt`.
   Obtain the checkpoint from the official [SAM2 repository](https://github.com/facebookresearch/sam2).
 - **SAM3 / SAM3.1 (optional):** place `sam3.pt` and/or `sam3.1_multiplex.pt` here,
   or use `--sam3-checkpoint` / `--sam31-checkpoint`. Follow the official
