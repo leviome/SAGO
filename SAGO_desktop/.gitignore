@@ -1,0 +1,11 @@
+.venv/
+.venv-sam3/
+.runtime/
+models/*.pt
+models/*.pth
+models/bert-base-uncased/
+dist/
+outputs/
+.test-*/
+__pycache__/
+*.pyc

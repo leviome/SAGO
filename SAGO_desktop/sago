@@ -1,0 +1,3 @@
+#!/bin/sh
+SAGO_APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec /usr/bin/python3 "$SAGO_APP_DIR/launch.py" "$@"

@@ -1,0 +1,27 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+(async()=> {
+    const source=fs.readFileSync('frontend/visualization.js','utf8');
+    const {projectSegment,drawVisualization,frustumCorners}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+    const matrix=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+    assert.deepEqual(projectSegment([0,0,.5],[1,1,.5],matrix,100,100),[[49.5,49.5],[99.5,99.5]]);
+    assert.equal(projectSegment([0,0,-2],[0,0,-1],matrix,100,100),null);
+    assert.deepEqual(projectSegment([-2,0,.5],[2,0,.5],matrix,100,100),[[-.5,49.5],[99.5,49.5]]);
+    assert.deepEqual(projectSegment([0,0,-1],[0,0,1],matrix,100,100),[[49.5,49.5],[49.5,49.5]]);
+    const perspective=[[1,0,0,0],[0,1,0,0],[0,0,1,1],[0,0,-.1,0]];
+    const crossing=projectSegment([0,0,-1],[.1,0,1],perspective,100,100);
+    assert(crossing.flat().every(Number.isFinite));
+    let lines=0,labels=[];
+    const ctx={save(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){lines++},fill(){},closePath(){},fillText(t){labels.push(t)}};
+    const data={projection:matrix,bbox:{corners:Array.from({length:8},(_,i)=>[i&1?.5:-.5,i&2?.5:-.5,i&4?.8:.2])},route:{origin:[0,0,.5],views:[{drone:0,position:[.5,0,.5]},{drone:1,position:[-.5,0,.5]}]}};
+    drawVisualization(ctx,data,100,100,false,false);assert.equal(lines,0);
+    drawVisualization(ctx,data,100,100,true,false);assert.equal(lines,12);
+    drawVisualization(ctx,data,100,100,false,true);assert.equal(lines,14);assert.deepEqual(labels,['D0 · 1','D1 · 1']);
+    const frustum={position:[0,0,.2],right:[1,0,0],down:[0,1,0],forward:[0,0,1],tan_half_fov:[1,.5],depth:.2};
+    assert.deepEqual(frustumCorners(frustum),[[-.2,-.1,.4],[.2,-.1,.4],[.2,.1,.4],[-.2,.1,.4]]);
+    data.route.views=[{drone:0,position:frustum.position,frustum}];
+    data.route.origin_frustum=frustum;
+    lines=0;labels=[];drawVisualization(ctx,data,100,100,false,true);assert.equal(lines,18);assert.deepEqual(labels,['s0','D0 · 1']);
+    lines=0;drawVisualization(ctx,data,100,100,false,false);assert.equal(lines,0);
+    console.log('Projection clipping, bbox edges and independent route branches OK');
+})().catch(e=>{console.error(e);process.exit(1)});

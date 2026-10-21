@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SAGO Desktop
+Name[zh_CN]=SAGO 桌面版
+Comment=Native Gaussian scene segmentation
+Exec=sago %f
+Icon=sago-desktop
+Terminal=false
+Categories=Graphics;3DGraphics;Science;
+MimeType=application/x-sago-gaussian-ply;
+StartupNotify=true

@@ -1,0 +1,45 @@
+# Machine-local settings and credentials
+.agents/
+.aws/
+.codex/
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Python environments, installed runtime binaries, caches and builds
+.venv*/
+.runtime/
+.test-*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.cache/
+build/
+dist/
+node_modules/
+*.so
+*.so.*
+*.o
+
+# External model weights and scene data
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+**/models/**/*.bin
+*.ply
+*.npy
+*.npz
+SAGO_knowledge.json
+
+# Generated diagnostics and exports
+outputs/
+debug/
+test-results/
+validation/
+*.deb
+*.log

@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+.cache/
+outputs/
+debug/
+models/*.pt
+.venv/
+test-results/
+
+.venv-sam3/
+
+# Machine-local configuration and build artifacts
+.agents/
+.aws/
+.codex/
+.idea/
+.pytest_cache/
+node_modules/
+build/
+dist/
+*.egg-info/
+*.so
+*.o
+.env
+.env.*
+!.env.example
+
+# External checkpoints are configured separately, never committed
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+models/**/*.bin

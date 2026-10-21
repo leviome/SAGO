@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use SAGO Web or the SAGO method in your research, please cite the SAGO paper below."
+title: "SAGO Web: Python/CUDA Backend and Browser UI for Segment Any Gaussians Online"
+type: software
+authors:
+  - name: "SAGO Web contributors"
+repository-code: "https://github.com/leviome/SAGO"
+url: "https://github.com/leviome/SAGO"
+version: "2.0.0"
+date-released: "2026-10-19"
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: "Online Segment 3D Gaussians via Launching Virtual Drones"
+  authors:
+    - family-names: Liao
+      given-names: Liwei
+    - family-names: Wang
+      given-names: Rongjie
+    - family-names: Wang
+      given-names: Ronggang
+  collection-title: "European Conference on Computer Vision (ECCV)"
+  year: 2026
+  url: "https://arxiv.org/abs/2607.01628"
+  identifiers:
+    - type: other
+      value: "arXiv:2607.01628"
+      description: "arXiv preprint"
