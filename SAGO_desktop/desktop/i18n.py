@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 ZH = {
+ 'Background color R / G / B':'背景颜色 R / G / B','Background color':'背景颜色','Choose color…':'选择颜色…',
  'Auto':'自动',
  'Cancel current round (C)':'取消本轮 (C)',
  'Cancelling round after the current GPU step…':'等待当前 GPU 步骤结束后取消本轮…',

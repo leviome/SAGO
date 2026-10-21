@@ -182,6 +182,8 @@ Saved segmentation contains an `int32` ID vector with one entry per Gaussian in 
 
 ## Ground calibration and visualization
 
+The **Camera** panel provides RGB background controls (0–255) and a color picker, defaulting to **(0, 0, 0)** (black). The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+
 **Three-point ground calibration** captures a view and lets you choose three distinct, non-collinear ground or tabletop positions. Rendered depth reconstructs their world coordinates. The unit normal is `normalize((P2 - P1) × (P3 - P1))`, initially oriented toward the camera; reverse it if needed, then apply the ground plane.
 
 Applying the calibration updates the camera and drone up direction and saves the plane and up vector to `SAGO_knowledge.json`. Reversing an applied normal also saves it. Future scene loads restore the calibration. Selecting or previewing points does not overwrite saved knowledge. Ground calibration does not load SAM.

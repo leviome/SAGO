@@ -21,7 +21,7 @@ class CaptureScopeTest(unittest.TestCase):
             engine.active = lambda: torch.tensor([True, True, True, False])
             rendered_scopes = []
 
-            def render(cam, model, extra_gau_mask):
+            def render(cam, model, extra_gau_mask, **kwargs):
                 rendered_scopes.append(extra_gau_mask.clone())
                 count = float(extra_gau_mask.sum())
                 return {'render': torch.full((3, 2, 2), count / 4),

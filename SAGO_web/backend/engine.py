@@ -31,6 +31,7 @@ class Engine:
         self.id_colors = False
         self.show_background = self.show_foreground = True
         self.render_mode = 'rgb'
+        self.background_color = [0, 0, 0]
         self.background_frame = None
         self.correction_pending = None
         self.next_object_id = 1
@@ -118,7 +119,7 @@ class Engine:
             knowledge_path=str(self.knowledge.path) if self.knowledge is not None else None,
             knowledge_warning=self.knowledge_warning, ground_restored=self.ground_restored,
             ids_dirty=self.ids_dirty, ids_restored=self.ids_restored, next_object_id=self.next_object_id,
-            render_mode=self.render_mode,
+            render_mode=self.render_mode, background_color=list(self.background_color),
             display=dict(show_background=self.show_background, show_foreground=self.show_foreground,
                          id_colors=self.id_colors, foreground_ids=None if self.foreground_ids is None else sorted(self.foreground_ids)))
 
@@ -204,7 +205,7 @@ class Engine:
     def frame(self, mode='all', highlight=None):
         self.require_scene()
         self.correction_pending = None
-        render_options = {}
+        render_options = {'bg_color': self.torch.tensor(self.background_color, dtype=self.torch.float32) / 255}
         cam = self.camera()
         if mode in ('all', 'multi'):
             legacy = mode == 'multi'
@@ -238,7 +239,7 @@ class Engine:
                     width, height = self.dimensions(self.view)
                     colors = render_options.get('override_color')
                     colors = self.natural_colors(cam, mask) if colors is None else colors[mask]
-                    rendered = point_image(self.model.get_xyz[mask], colors, cam.full_proj_transform, width, height)
+                    rendered = point_image(self.model.get_xyz[mask], colors, cam.full_proj_transform, width, height, background_color=self.background_color)
                     image = self.rgb(rendered)
                 else:
                     if self.render_mode == 'splats':
@@ -246,7 +247,7 @@ class Engine:
                     rendered = self.render_simple(cam, self.model, extra_gau_mask=mask, **render_options)
                     if self.render_mode == 'depth':
                         from backend.render_modes import depth_rgb
-                        image = depth_rgb(rendered['depth'])
+                        image = depth_rgb(rendered['depth'], self.background_color)
                         if highlight is not None and len(highlight):
                             colors = self.torch.zeros_like(self.model.get_xyz)
                             colors[self.torch.from_numpy(highlight).cuda()] = 1.
@@ -257,7 +258,8 @@ class Engine:
                         image = self.rgb(rendered['render'])
         else:
             width, height = self.dimensions(self.view)
-            image = np.zeros((height, width, 3), dtype=np.uint8)
+            image = np.empty((height, width, 3), dtype=np.uint8)
+            image[:] = self.background_color
         overlays = self.visualization(cam)
         if mode == 'multi' or (mode == 'all' and self.id_colors):
             # A single-object box would be misleading while inspecting several objects.
@@ -542,7 +544,8 @@ class Engine:
             if not bool(scope.any()):
                 raise ValueError('当前前景为空，请撤销或清空选区后重新提示')
         with self.torch.no_grad():
-            rendered = self.render_simple(cam, self.model, extra_gau_mask=scope)
+            rendered = self.render_simple(cam, self.model, extra_gau_mask=scope,
+                                          bg_color=self.torch.tensor(self.background_color, dtype=self.torch.float32) / 255)
         rgb = self.rgb(rendered['render'])
         token = uuid.uuid4().hex
         self.capture = dict(id=token, version=self.scene_version, cam=cam, rgb=rgb,
@@ -1061,6 +1064,15 @@ class Engine:
         return dict(download='/downloads/' + path.name)
 
     def execute(self, action, data, progress, cancel):
+        if 'background_color' in data:
+            from backend.render_modes import validate_background_color
+            color = validate_background_color(data['background_color'])
+            if color != self.background_color:
+                if self.capture is not None or self.ground_capture is not None:
+                    raise ValueError('Exit prompts or calibration before changing the background color')
+                self.background_color = color
+                self.background_frame = None
+                self.correction_pending = None
         if action == 'gif':
             from backend.gif_export import generate_gif
             return generate_gif(self, data, progress, cancel)

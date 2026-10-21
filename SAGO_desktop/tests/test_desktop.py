@@ -97,6 +97,18 @@ class NativeTest(unittest.TestCase):
     def prompt_mode(self):
         self.window.prompt_check.click()
         spin_until(lambda:self.window.capture and self.window.loaded_model=='sam2' and not self.window.bridge.busy)
+    def test_background_controls_default_black_send_rgb_and_lock_during_prompts(self):
+        w=self.window
+        spin_until(lambda:not w.bridge.busy)
+        self.assertEqual([c.value() for c in w.background_rgb],[0,0,0])
+        for control,value in zip(w.background_rgb,[32,64,128]):control.setValue(value)
+        w.background_rgb[-1].editingFinished.emit()
+        spin_until(lambda:not w.bridge.busy)
+        self.assertEqual(self.engine.calls[-1][1]['background_color'],[32,64,128])
+        self.prompt_mode()
+        self.assertTrue(all(not c.isEnabled() for c in w.background_rgb))
+        self.assertFalse(w.background_picker.isEnabled())
+
     def test_idle_and_render_status_do_not_trigger_resize_loop(self):
         w=self.window
         QTest.qWait(500);spin_until(lambda:not w.bridge.busy)

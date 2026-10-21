@@ -3,7 +3,16 @@ import numpy as np
 import torch
 
 
-def depth_rgb(depth):
+def validate_background_color(value):
+    """RGB channels in byte units; reject malformed and non-finite API inputs."""
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError('Background color must contain three integers from 0 to 255')
+    if any(type(c) not in (int, float) or not np.isfinite(c) or not 0 <= c <= 255 or c != int(c) for c in value):
+        raise ValueError('Background color must contain three integers from 0 to 255')
+    return [int(c) for c in value]
+
+
+def depth_rgb(depth, background_color=(0, 0, 0)):
     import cv2
     values = depth.detach().cpu().numpy() if torch.is_tensor(depth) else np.asarray(depth)
     values = np.asarray(values, dtype=np.float32)
@@ -12,7 +21,8 @@ def depth_rgb(depth):
     if values.ndim != 2:
         raise ValueError('深度图必须为二维图像')
     valid = np.isfinite(values) & (values > 0)
-    image = np.zeros((*values.shape, 3), dtype=np.uint8)
+    image = np.empty((*values.shape, 3), dtype=np.uint8)
+    image[:] = background_color
     if valid.any():
         near, far = np.percentile(values[valid], [2, 98])
         normalized = np.full(values.shape, .5, dtype=np.float32)
@@ -24,9 +34,9 @@ def depth_rgb(depth):
     return image
 
 
-def point_image(xyz, colors, projection, width, height):
+def point_image(xyz, colors, projection, width, height, background_color=(0, 0, 0)):
     """One-pixel centers, nearest depth wins; equal-depth ties are deterministic."""
-    image = xyz.new_zeros((width * height, 3))
+    image = (xyz.new_tensor(background_color) / 255).expand(width * height, 3).clone()
     clip = xyz @ projection[:3, :] + projection[3, :]
     valid = torch.isfinite(clip).all(dim=1) & (clip[:, 3] > 1e-6) & (clip[:, 2] >= 0)
     clip, colors = clip[valid], colors[valid]

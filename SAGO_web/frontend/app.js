@@ -90,6 +90,7 @@ function controls() {
         button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
         button.disabled=!hasScene || !!capture || !!groundSession || backgroundBox;
     }
+    for (const id of ['background-color','background-r','background-g','background-b']) $(id).disabled = !hasScene || !!capture || !!groundSession || backgroundBox;
     $('save-ids').disabled = !hasScene;
     const hasObjects=hasScene && state.objects.length>0;
     const canCorrect=hasScene && ($('show-background').checked || ($('show-foreground').checked && state.objects.some(o=>foregroundIds.has(o.id) && !o.hidden)));
@@ -158,6 +159,7 @@ async function present(result) {
         const firstSnapshot=!state;
         state = result;
         if(result.render_mode)renderMode=result.render_mode;
+        if(result.background_color) setBackgroundColor(result.background_color);
         if(result.display) {
             $('show-background').checked=result.display.show_background;
             $('show-foreground').checked=result.display.show_foreground;
@@ -224,6 +226,7 @@ async function job(action, data = {}, interactive = false) {
         data={...data,render_mode:renderMode,id_colors:$('color-ids').checked,show_background:$('show-background').checked,show_foreground:$('show-foreground').checked};
         data.foreground_ids=[...foregroundIds];
     }
+    data.background_color = ['r','g','b'].map(c=>Number($(`background-${c}`).value));
     const started=performance.now();
     $('busy-elapsed').textContent='';
     const elapsed=setInterval(()=> { localized($('busy-elapsed'), "textContent", () => t("已用时 {0} 秒", ((performance.now()-started)/1000).toFixed(1))); },100);
@@ -814,3 +817,22 @@ run(async () => {
         status(() => t("Python 后端已连接 · 已恢复当前场景与 {0} 个物体 ID", state.objects.length));
     } else status(() => t("Python 后端已连接 · 加载场景开始"));
 })();
+
+function setBackgroundColor(rgb) {
+    ['r','g','b'].forEach((c,i)=>{$(`background-${c}`).value=rgb[i];});
+    $('background-color').value='#'+rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+}
+$('background-color').onchange=run(async()=>{
+    const hex=$('background-color').value;
+    setBackgroundColor([1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));
+    await present(await job('frame',{mode}));
+});
+for(const channel of ['r','g','b']) $(`background-${channel}`).onchange=run(async()=>{
+    const rgb=['r','g','b'].map(c=>Number($(`background-${c}`).value));
+    if(rgb.some(c=>!Number.isInteger(c)||c<0||c>255)) {
+        setBackgroundColor(state?.background_color || [0,0,0]);
+        return;
+    }
+    setBackgroundColor(rgb);
+    await present(await job('frame',{mode}));
+});

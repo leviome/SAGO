@@ -5,12 +5,12 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from PySide6.QtCore import Qt, QTimer, QSignalBlocker, QSize, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QMovie, QPixmap
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QMovie, QPixmap, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QSplitter, QScrollArea, QPushButton, QLabel, QLineEdit, QComboBox,
     QSpinBox, QDoubleSpinBox, QCheckBox, QToolButton, QProgressBar, QFileDialog,
     QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QSizePolicy, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QTabWidget)
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QTabWidget, QColorDialog)
 
 from desktop.bridge import EngineBridge
 from desktop.canvas import Viewport, decode_image
@@ -106,6 +106,12 @@ class MainWindow(QMainWindow):
         self.field(camera,'Original camera',self.preset)
         self.fov=self.spin(50,5,150);self.size=self.combo([('Auto',None)]+[(str(n),n) for n in (512,768,1024,1536,1920,2560)]);self.size.activated.connect(self.refresh)
         camera.addWidget(self.row(self.label('FOV'),self.fov,self.label('Render size'),self.size))
+        self.background_rgb=[QSpinBox() for _ in range(3)]
+        for channel, control in zip(('R','G','B'),self.background_rgb):
+            control.setRange(0,255);control.setValue(0);control.setPrefix(channel+' ')
+            control.editingFinished.connect(self.refresh)
+        self.background_picker=self.button('Choose color…',self.choose_background)
+        self.field(camera,'Background color R / G / B',self.row(*self.background_rgb,self.background_picker))
         self.up=[self.spin(n,-1e8,1e8,5) for n in (0,-1,0)]
         self.target=[self.spin(0,-1e8,1e8,5) for _ in range(3)]
         self.field(camera,'Up X / Y / Z',self.row(*self.up));self.field(camera,'Target X / Y / Z',self.row(*self.target))
@@ -241,6 +247,7 @@ class MainWindow(QMainWindow):
         if action in ('frame','view','export','release','cancel_round'):
             data.update(render_mode=self.render_mode.currentData(),id_colors=self.color_ids.isChecked(),
                 show_background=self.show_background.isChecked(),show_foreground=self.show_foreground.isChecked(),foreground_ids=sorted(self.foreground_ids))
+        data['background_color']=[control.value() for control in self.background_rgb]
         self.callback=callback;self.current_data=data;self.started=time.monotonic();self.elapsed_timer.start(100)
         self.progress_bar.setValue(0);self.busy_label.setText(self.text('Working…'))
         self.bridge.submit(action,data);self.update_controls();return True
@@ -302,12 +309,22 @@ class MainWindow(QMainWindow):
             self.fov.setValue(v['fov'])
             for controls,key in ((self.up,'up'),(self.target,'target')):
                 for control,value in zip(controls,v[key]):control.setValue(value)
+        if 'background_color' in result:
+            for control,value in zip(self.background_rgb,result['background_color']):
+                control.setValue(value)
         if result.get('render_mode'):
             self.render_mode.setCurrentIndex(self.render_mode.findData(result['render_mode']))
         self.scene_info.setText(f"{result.get('scene','')}\n{result.get('count',0):,} Gaussians")
         self.stats.setText(f"{result.get('selected',0):,} / {result.get('count',0):,}")
         self.ids_info.setText(('● ' if result.get('ids_dirty') else '')+str(result.get('knowledge_path') or ''))
         self.refresh_objects();self.update_controls();self.canvas.update()
+
+    def choose_background(self):
+        color=QColorDialog.getColor(QColor(*[c.value() for c in self.background_rgb]),self,self.text('Background color'))
+        if color.isValid():
+            for control,value in zip(self.background_rgb,(color.red(),color.green(),color.blue())):
+                control.setValue(value)
+            self.refresh()
 
     def update_controls(self):
         if self._building:return
@@ -318,6 +335,7 @@ class MainWindow(QMainWindow):
         self.canvas.blocked=busy and not (self.capture and self.bridge.action=='preview')
         self.canvas.mode='correction' if self.correction else 'ground' if self.ground else 'prompt' if self.capture else 'camera'
         self.canvas.foreground=self.fg;self.canvas.background=self.bg;self.canvas.box=self.box;self.canvas.ground=self.ground
+        for widget in (*self.background_rgb,self.background_picker):widget.setEnabled(scene and not busy and not editing)
         for widget in (self.display,self.render_mode):widget.setEnabled(scene and not busy and not editing)
         self.correct_button.setEnabled(scene and self.mode=='all' and not self.capture and not self.ground and not busy)
         self.correct_confirm.setVisible(self.correction);self.correct_discard.setVisible(self.correction)

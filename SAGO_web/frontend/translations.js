@@ -1,5 +1,6 @@
 // UI strings use Chinese source keys; placeholders preserve user data verbatim.
 export const messages = {
+  "背景颜色 R / G / B": "Background color R / G / B",
   "已保存到：{0}": "Saved to: {0}",
   "当前后端未更新，GIF 尚未生成。请先保存分割结果，再重启 Python 后端并刷新网页": "The running backend is outdated; no GIF was generated. Save your segmentation, restart the Python backend, and refresh the page.",
   "导出所有物体 GIF": "Export all object GIFs",

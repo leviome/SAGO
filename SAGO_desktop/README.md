@@ -69,6 +69,8 @@ The installer includes the SAM2 checkpoint and its tracking code. Model terms re
 
 ## Desktop workflow
 
+The **Camera** panel provides RGB background controls (0–255) and a color picker, defaulting to **(0, 0, 0)** (black). The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+
 - Open a PLY or training scene directory with native file dialogs, drag a PLY into the viewport, choose a recent scene, or pass a path to `sago`.
 - Drag to orbit, Shift/right-drag to pan, and scroll to zoom. The viewport fills available space while preserving the rendered aspect ratio. Original scene cameras, FOV, resolution, target and up vector can be selected. Render size defaults to Auto, matching the viewport in physical screen pixels (512–2560 long edge, rounded up in steps of 64). Manual sizes include 512, 768, 1024, 1536, 1920 and 2560. Navigation uses up to 768 pixels and refreshes at the selected quality after 450 ms of inactivity. Prompt and ground capture use the selected quality with fixed pixel coordinates. Image display uses smooth scaling.
 - Press **M** to enter segmentation prompt mode. Left-click foreground points, right-click background points, or draw a box. 2D segmentation updates automatically after each change. Choose the desired candidate and press **P** for six-view Virtual Drone refinement. Padding defaults to 2 pixels.

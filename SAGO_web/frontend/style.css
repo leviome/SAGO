@@ -159,3 +159,5 @@ html[lang=en] .right .selection-actions>button{font-size:10px;white-space:normal
 html[lang=en] .prompt-toggle{font-size:12px}
 
 .gif-options{margin-top:8px}.gif-options>summary{cursor:pointer;color:var(--muted);font-size:11px}.gif-options .row{margin-top:8px}#gif-dialog{width:min(650px,92vw)}#gif-preview{display:block;width:100%;max-height:68vh;object-fit:contain;background:white}#gif-info{color:var(--muted);font-size:12px}#gif-download{display:inline-block;margin-top:8px}
+
+.background-color-row>input[type=color]{flex:0 0 42px;width:42px;height:32px;padding:2px;cursor:pointer}.background-color-row>.triple{flex:1}
