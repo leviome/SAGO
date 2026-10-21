@@ -64,7 +64,7 @@ Model checkpoints, scenes, virtual environments, caches, generated outputs, and 
 
 Installers are published as GitHub Release assets. Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.2`, so Web and Desktop can be versioned independently. The full Desktop installer includes SAM2 weights and Qt; source archives do not.
 
-The former standalone Web repository has been consolidated here. Its commit history is retained in this repository; historical snapshots are available under `legacy-web-v1.0` and `legacy-web-v2.0`. New development and releases belong to `leviome/SAGO`.
+The former standalone Web repository has been consolidated here. Its commit history is retained in this repository; the previous v2.0 snapshot is available under `legacy-web-v2.0`. Earlier commits remain accessible through the retained history. New development and releases belong to `leviome/SAGO`.
 
 ## Citation and licenses
 
