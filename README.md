@@ -8,40 +8,7 @@ SAGO turns 2D object prompts into 3D Gaussian selections, then refines them from
 
 ## Object gallery
 
-<table>
-  <tr>
-    <td width="16.66%"><img src="assets/0b4c9976e02a4d8da2b2897886e6e58c.gif" width="160" alt="Segmented 3D object 1"></td>
-    <td width="16.66%"><img src="assets/0b60fefbe2494ac48984b66bd344537f.gif" width="160" alt="Segmented 3D object 2"></td>
-    <td width="16.66%"><img src="assets/1bdf9bbb6d9b4099a736c5ccbd0659e3.gif" width="160" alt="Segmented 3D object 3"></td>
-    <td width="16.66%"><img src="assets/260f2a84d6fe4aefb7ee8cf5e467229b.gif" width="160" alt="Segmented 3D object 4"></td>
-    <td width="16.66%"><img src="assets/3232c6cbb3124a6a982f18f23505a487.gif" width="160" alt="Segmented 3D object 5"></td>
-    <td width="16.66%"><img src="assets/3627202b115c4de584c16fd9f5369aca.gif" width="160" alt="Segmented 3D object 6"></td>
-  </tr>
-  <tr>
-    <td width="16.66%"><img src="assets/36fb5dd3ebf549ebabe27f75b155985d.gif" width="160" alt="Segmented 3D object 7"></td>
-    <td width="16.66%"><img src="assets/39f0430de80c4d24a3aa6acbbff7961a.gif" width="160" alt="Segmented 3D object 8"></td>
-    <td width="16.66%"><img src="assets/4bdbb4f7ed8444bebd4f413c8c4ea744.gif" width="160" alt="Segmented 3D object 9"></td>
-    <td width="16.66%"><img src="assets/62bc4504d0494522bd2753cff21df917.gif" width="160" alt="Segmented 3D object 10"></td>
-    <td width="16.66%"><img src="assets/7027f197493f4062b1dd87028dd44bfe.gif" width="160" alt="Segmented 3D object 11"></td>
-    <td width="16.66%"><img src="assets/71929db371b74eb1a6b962621bffc0fd.gif" width="160" alt="Segmented 3D object 12"></td>
-  </tr>
-  <tr>
-    <td width="16.66%"><img src="assets/731420c049df412f8bc22e10b2da5ff3.gif" width="160" alt="Segmented 3D object 13"></td>
-    <td width="16.66%"><img src="assets/7807bf298e4b490abaf4a3375239160d.gif" width="160" alt="Segmented 3D object 14"></td>
-    <td width="16.66%"><img src="assets/784f28e275634dd6b46ce6b043a94eed.gif" width="160" alt="Segmented 3D object 15"></td>
-    <td width="16.66%"><img src="assets/960801a4bb6d40bfbf276d131a0d6d77.gif" width="160" alt="Segmented 3D object 16"></td>
-    <td width="16.66%"><img src="assets/9b8fefcd793c4f2ba100580ba927f915.gif" width="160" alt="Segmented 3D object 17"></td>
-    <td width="16.66%"><img src="assets/9e74eb4f1e64474f89a0890bb26ce4bc.gif" width="160" alt="Segmented 3D object 18"></td>
-  </tr>
-  <tr>
-    <td width="16.66%"><img src="assets/a66cec219a8f460abfa15c7b7bf01b2e.gif" width="160" alt="Segmented 3D object 19"></td>
-    <td width="16.66%"><img src="assets/a70d14c9d68f4f91b28b84465c109114.gif" width="160" alt="Segmented 3D object 20"></td>
-    <td width="16.66%"><img src="assets/cabd39bdbebd44a8ad61fd9c9429bf83.gif" width="160" alt="Segmented 3D object 21"></td>
-    <td width="16.66%"><img src="assets/d31af010b39d4e3eb604a63cb5780512.gif" width="160" alt="Segmented 3D object 22"></td>
-    <td width="16.66%"><img src="assets/f0479c90b1bc4c66aeca48e6edffd754.gif" width="160" alt="Segmented 3D object 23"></td>
-    <td width="16.66%"><img src="assets/f0c5a52135ac4633a1c03644850e76c7.gif" width="160" alt="Segmented 3D object 24"></td>
-  </tr>
-</table>
+![24 segmented 3D objects in a 12-column, 2-row animated gallery](assets/gallery.gif)
 
 ## Applications
 
