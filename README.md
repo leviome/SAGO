@@ -6,7 +6,7 @@ Official code for **Online Segment 3D Gaussians via Launching Virtual Drones** (
 
 SAGO turns 2D object prompts into 3D Gaussian selections, then refines them from multiple Virtual Drone viewpoints. This repository contains two complete applications. Each includes its own renderer and segmentation backend and can run independently of the other.
 
-**No per-scene optimization. Sub-second segmentation latency.**
+<h2 align="center">Why SAGO?<br>No per-scene optimization. Sub-second segmentation latency.</h2>
 
 ![24 segmented 3D objects in a 12-column, 2-row animated gallery](assets/gallery.gif)
 
