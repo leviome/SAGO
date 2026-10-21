@@ -69,7 +69,7 @@ Model checkpoints, scenes, virtual environments, caches, generated outputs (apar
 - [Web model setup](SAGO_web/models/README.md)
 - [Desktop SAM2 setup](SAGO_desktop/models/README.md)
 
-Installers are published as GitHub Release assets. Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.2`, so Web and Desktop can be versioned independently. The full Desktop installer includes SAM2 weights and Qt; source archives do not.
+Installers are published as GitHub Release assets. Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.7`, so Web and Desktop can be versioned independently. Desktop 1.1.7 and later installers include Qt and download SAM2 weights automatically on first entering segmentation prompts. Download progress, resume and retry are supported; checkpoints are verified and cached locally. Earlier Desktop installers bundled SAM2 weights.
 
 The former standalone Web repository has been consolidated here. Its commit history is retained in this repository; the previous v2.0 snapshot is available under `legacy-web-v2.0`. Earlier commits remain accessible through the retained history. New development and releases belong to `leviome/SAGO`.
 

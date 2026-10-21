@@ -3,7 +3,19 @@ from backend.engine import Engine
 
 
 class DesktopEngine(Engine):
+    def load_model(self, data):
+        self.validate_segmenter(data)
+        if self.tracker is None:
+            from desktop.checkpoints import resolve_checkpoint
+            self.checkpoint = resolve_checkpoint(self.checkpoint,
+                getattr(self, '_checkpoint_progress', None), getattr(self, '_checkpoint_cancel', None))
+            progress = getattr(self, '_checkpoint_progress', None)
+            if progress:
+                progress(0, 'Loading SAM2…', dict(kind='model_loading', stage='Loading SAM2…'))
+        return super().load_model(data)
+
     def execute(self, action, data, progress, cancel):
+        self._checkpoint_progress, self._checkpoint_cancel = progress, cancel
         if action == 'cancel_round':
             previous = getattr(self, '_round_rollback', None)
             if previous is not None:

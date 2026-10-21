@@ -1,6 +1,11 @@
 // UI strings use Chinese source keys; placeholders preserve user data verbatim.
 export const messages = {
-  "背景颜色 R / G / B": "Background color R / G / B",
+  "删除": "Delete",
+  "删除物体，并将对应高斯归为背景（ID 0）": "Delete object and return its Gaussians to background (ID 0)",
+  "物体已删除，对应高斯已归为 ID 0；可撤销，保存分割结果后写入场景知识文件": "Object deleted; its Gaussians now belong to ID 0. Undo is available; save segmentation to persist the change.",
+  "对抗性背景": "Adversarial background",
+  "按膨胀前 mask 的边缘明暗选择黑底或白底；关闭后使用手动背景色。": "Choose black or white from the unpadded mask boundary; disable to use the manual background color.",
+  "背景颜色 R / G / B（0–1）": "Background color R / G / B (0–1)",
   "已保存到：{0}": "Saved to: {0}",
   "当前后端未更新，GIF 尚未生成。请先保存分割结果，再重启 Python 后端并刷新网页": "The running backend is outdated; no GIF was generated. Save your segmentation, restart the Python backend, and refresh the page.",
   "导出所有物体 GIF": "Export all object GIFs",

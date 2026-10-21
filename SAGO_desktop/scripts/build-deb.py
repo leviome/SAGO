@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parent.parent
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--without-models',action='store_true',help='Small application package; checkpoints configured by user')
+    parser.add_argument('--without-models',action='store_true',help='Compatibility option: all packages download checkpoints on first use')
     parser.add_argument('--qt-site',type=Path,help='Site-packages containing PySide6/shiboken6, bundled for offline Qt startup')
     parser.add_argument('--output',type=Path,default=ROOT/'dist')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
@@ -23,10 +23,9 @@ def main():
             shutil.copytree(ROOT/'vendor'/name,app/'vendor'/name,ignore=shutil.ignore_patterns('__pycache__','*.pyc','build','.git','*.egg-info'))
         for name in ('run.py','launch.py','requirements.txt','README.md','LICENSE','THIRD_PARTY_NOTICES.md'):
             shutil.copy2(ROOT/name,app/name)
-        if not args.without_models:
-            (app/'models').mkdir()
-            shutil.copy2(ROOT/'models/sam2_hiera_large.pt',app/'models/sam2_hiera_large.pt')
-            shutil.copy2(ROOT/'models/README.md',app/'models/README.md')
+        # Checkpoints are always external, including the default build.
+        (app/'models').mkdir()
+        shutil.copy2(ROOT/'models/README.md',app/'models/README.md')
         for resource in ('lib','licenses'):
             source=ROOT/'.runtime'/resource
             if source.is_dir():shutil.copytree(source,app/'.runtime'/resource)
@@ -44,7 +43,7 @@ def main():
         debian=package/'DEBIAN';debian.mkdir()
         size=sum(p.stat().st_size for p in package.rglob('*') if p.is_file())//1024
         (debian/'control').write_text(f'''Package: sago-desktop
-Version: 1.1.2
+Version: 1.1.7
 Section: graphics
 Priority: optional
 Architecture: amd64
@@ -60,7 +59,7 @@ Description: Native Qt Gaussian segmentation desktop application
         for name in ('postinst','postrm'):
             script=debian/name
             script.write_text('#!/bin/sh\nset -e\nif command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi\nif command -v update-mime-database >/dev/null 2>&1; then update-mime-database /usr/share/mime || true; fi\nexit 0\n');script.chmod(0o755)
-        output=args.output/'sago-desktop_1.1.2_amd64.deb'
+        output=args.output/'sago-desktop_1.1.7_amd64.deb'
         subprocess.run(['dpkg-deb','--root-owner-group','-Zzstd','-z1','--build',str(package),str(output)],check=True)
         print(output)
 

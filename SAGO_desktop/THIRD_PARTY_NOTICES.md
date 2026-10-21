@@ -9,9 +9,9 @@ Keep those notices when redistributing this project.
 - GLM: `third_party/glm/copying.txt` inside each rasterizer directory.
 - SAM tracking library: `sago_core/CrossViewTracker/LICENSE`.
 
-The full Debian installer includes the original SAM2 checkpoint. Its license and
-checkpoint terms remain those of the [SAM2 project](https://github.com/facebookresearch/sam2).
-Source-only distributions do not include model weights.
+Version 1.1.7 and later Debian installers and source distributions exclude model weights.
+The original SAM2 checkpoint is downloaded from the official upstream endpoint on first use.
+Its license and checkpoint terms remain those of the [SAM2 project](https://github.com/facebookresearch/sam2).
 
 ## Desktop runtime
 

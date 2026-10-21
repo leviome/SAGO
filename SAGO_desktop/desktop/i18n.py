@@ -4,7 +4,17 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 ZH = {
- 'Background color R / G / B':'背景颜色 R / G / B','Background color':'背景颜色','Choose color…':'选择颜色…',
+ 'Loading SAM2…':'正在加载 SAM2…',
+    'Retry download':'重试下载',
+ 'Downloading SAM2 checkpoint…':'正在下载 SAM2 权重…',
+ 'Verifying SAM2 checkpoint…':'正在校验 SAM2 权重…',
+ 'Waiting for another SAM2 download…':'正在等待另一个 SAM2 下载任务…',
+ 'Download interrupted; retrying…':'下载中断，正在重试…',
+ 'SAM2 checkpoint ready':'SAM2 权重已就绪',
+ 'Delete object and return its Gaussians to background (ID 0)':'删除物体，并将对应高斯归为背景（ID 0）',
+ 'Adversarial background':'对抗性背景',
+ 'Choose black or white from the unpadded mask boundary; disable to use the manual background color.':'按膨胀前 mask 的边缘明暗选择黑底或白底；关闭后使用手动背景色。',
+ 'Background color R / G / B (0–1)':'背景颜色 R / G / B（0–1）','Background color':'背景颜色','Choose color…':'选择颜色…',
  'Auto':'自动',
  'Cancel current round (C)':'取消本轮 (C)',
  'Cancelling round after the current GPU step…':'等待当前 GPU 步骤结束后取消本轮…',

@@ -82,12 +82,12 @@ class RenderModesTest(unittest.TestCase):
                 e.execute('frame', {'render_mode': 'points'}, None, None)
             e.capture = None
             e.render_mode = 'depth'
-            e.background_color = [32, 64, 128]
+            e.background_color = [0.125, 0.25, 0.5]
             self.assertEqual(e.freeze()['render_mode'], 'rgb')
             self.assertNotIn('show_gau', e.render_simple.call_args.kwargs)
-            torch.testing.assert_close(e.render_simple.call_args.kwargs['bg_color'], torch.tensor([32, 64, 128]) / 255)
+            torch.testing.assert_close(e.render_simple.call_args.kwargs['bg_color'], torch.tensor([0.125, 0.25, 0.5]))
             e.execute('frame', {'render_mode': 'rgb'}, None, None)
-            torch.testing.assert_close(e.render_simple.call_args.kwargs['bg_color'], torch.tensor([32, 64, 128]) / 255)
+            torch.testing.assert_close(e.render_simple.call_args.kwargs['bg_color'], torch.tensor([0.125, 0.25, 0.5]))
 
 
     def test_background_color_validation_and_frozen_view(self):
@@ -96,30 +96,33 @@ class RenderModesTest(unittest.TestCase):
             e.frame = lambda mode='all': e.snapshot()
             e.foreground_options = lambda data: None
             self.assertEqual(e.snapshot()['background_color'], [0, 0, 0])
-            result = e.execute('frame', {'background_color': [32, 64, 128]}, None, None)
-            self.assertEqual(result['background_color'], [32, 64, 128])
+            result = e.execute('frame', {'background_color': [0.125, 0.25, 0.5]}, None, None)
+            self.assertEqual(result['background_color'], [0.125, 0.25, 0.5])
             for value in (None, [], [1, 2], [1, 2, 3, 4], [True, 0, 0], ['1', 0, 0],
                           [-1, 0, 0], [256, 0, 0], [1.5, 0, 0], [float('nan'), 0, 0], [float('inf'), 0, 0]):
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     e.execute('frame', {'background_color': value}, None, None)
-                self.assertEqual(e.background_color, [32, 64, 128])
+                self.assertEqual(e.background_color, [0.125, 0.25, 0.5])
             for field in ('capture', 'ground_capture'):
                 setattr(e, field, {'id': 'locked'})
                 with self.assertRaisesRegex(ValueError, 'Exit prompts'):
                     e.execute('frame', {'background_color': [0, 0, 0]}, None, None)
-                self.assertEqual(e.execute('frame', {'background_color': [32, 64, 128]}, None, None)['background_color'], [32, 64, 128])
+                self.assertEqual(e.execute('frame', {'background_color': [0.125, 0.25, 0.5]}, None, None)['background_color'], [0.125, 0.25, 0.5])
                 setattr(e, field, None)
 
     def test_custom_background_preserves_points_and_depth_colors(self):
-        rgb = [32, 64, 128]
+        rgb = [0.125, 0.25, 0.5]
         xyz = torch.tensor([[0., 0., 1.]])
         colors = torch.tensor([[1., 0., 0.]])
         image = point_image(xyz, colors, PROJECTION, 5, 5, rgb)
-        torch.testing.assert_close(image[:, 0, 0], torch.tensor(rgb) / 255)
+        torch.testing.assert_close(image[:, 0, 0], torch.tensor(rgb))
         torch.testing.assert_close(image[:, 2, 2], colors[0])
         empty = point_image(xyz[:0], colors[:0], PROJECTION, 5, 5, rgb)
-        torch.testing.assert_close(empty, (torch.tensor(rgb) / 255)[:, None, None].expand(3, 5, 5))
+        torch.testing.assert_close(empty, (torch.tensor(rgb))[:, None, None].expand(3, 5, 5))
         depth = np.array([[0., np.nan], [1., 4.]])
         custom, original = depth_rgb(depth, rgb), depth_rgb(depth)
-        np.testing.assert_array_equal(custom[0], [rgb, rgb])
+        np.testing.assert_array_equal(custom[0], [[32, 64, 128], [32, 64, 128]])
         np.testing.assert_array_equal(custom[1], original[1])
+        white = point_image(xyz[:0], colors[:0], PROJECTION, 5, 5, [1, 1, 1])
+        self.assertTrue(bool((white == 1).all()))
+        self.assertTrue(bool((depth_rgb(np.zeros((2, 2)), [1, 1, 1]) == 255).all()))

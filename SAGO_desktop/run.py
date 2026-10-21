@@ -17,7 +17,7 @@ def main():
     parser.add_argument('scene',nargs='?',help='Gaussian PLY or training output directory')
     parser.add_argument('--checkpoint',help='SAM2 checkpoint override')
     parser.add_argument('--output',help='Export directory override')
-    parser.add_argument('--version',action='version',version='SAGO Desktop 1.1.2')
+    parser.add_argument('--version',action='version',version='SAGO Desktop 1.1.7')
     args=parser.parse_args()
     # Resolve relative CLI paths before switching to writable application data.
     scene=str(Path(args.scene).expanduser().resolve()) if args.scene else None
@@ -28,7 +28,7 @@ def main():
     from PySide6.QtWidgets import QApplication
     from desktop.config import read_config,configure
     settings=read_config()
-    if args.checkpoint:settings['sam2_checkpoint']=args.checkpoint
+    if args.checkpoint:settings['sam2_checkpoint']=str(Path(args.checkpoint).expanduser().resolve())
     if args.output:settings['output']=str(Path(args.output).expanduser().resolve())
     checkpoint,output=configure(settings)
     app=QApplication([sys.argv[0]])

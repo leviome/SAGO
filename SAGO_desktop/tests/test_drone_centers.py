@@ -7,19 +7,22 @@ import unittest
 from unittest.mock import patch
 
 import torch
+import numpy as np
 from backend.engine import Engine
 
 
 class DroneCentersTest(unittest.TestCase):
-    def run_route(self, depth=None, reject_first=False, text_candidates=False):
+    def run_route(self, depth=None, reject_first=False, text_candidates=False,
+                  edge_rgb=32, adversarial=True, manual=(0, 0, 0)):
         with tempfile.TemporaryDirectory() as root:
             engine = Engine('unused.pt', root)
             engine.torch = torch
+            engine.background_color = list(manual)
             xyz = torch.arange(24, dtype=torch.float32).reshape(8, 3)
             engine.model = SimpleNamespace(get_xyz=xyz)
             engine.view = {'up': [0, -1, 0]}
             mask = torch.ones((2, 2), dtype=torch.bool)
-            capture = dict(masks=[mask], depth=torch.ones((2, 2)) if depth is None else depth,
+            capture = dict(rgb=np.full((2, 2, 3), edge_rgb, np.uint8), masks=[mask], depth=torch.ones((2, 2)) if depth is None else depth,
                            cam=SimpleNamespace(world_view_transform=torch.eye(4), FoVx=1., FoVy=.8), encoded=[None], preds=torch.ones((1, 1)),
                            score=None, pointers=torch.ones((1, 1)))
             if text_candidates:
@@ -53,6 +56,8 @@ class DroneCentersTest(unittest.TestCase):
                     return result
             class Drone:
                 def __init__(drone_self, **kw):
+                    expected = ([1., 1., 1.] if edge_rgb < 128 else [0., 0., 0.]) if adversarial else list(manual)
+                    torch.testing.assert_close(kw['background_color'], torch.tensor(expected, dtype=torch.float32))
                     if text_candidates:
                         self.assertEqual(kw['ptr'][0].item(), 14)
                     drone_self.prev_mems, drone_self.prev_ptrs = deque(), deque()
@@ -68,7 +73,10 @@ class DroneCentersTest(unittest.TestCase):
                 masking_for_fg=lambda model, selected: SimpleNamespace(get_xyz=model.get_xyz[selected]),
                 mask_average_location=surface, load_3dgs_camera=lambda *a, **kw: None)
             with patch.object(torch.cuda, 'synchronize'):
-                result = engine.apply({'drone': True, 'level': 4 if text_candidates else 0}, lambda *a: None, threading.Event())
+                result = engine.apply({'drone': True, 'level': 4 if text_candidates else 0, 'adversarial_background': adversarial}, lambda *a: None, threading.Event())
+            for report in result['route']:
+                self.assertEqual(report['background_color'], result['drone_background']['color'])
+            self.assertEqual(engine.drone_path['background'], result['drone_background'])
             self.assertEqual(engine.drone_path['origin'], [0., 0., 0.])
             initial = engine.drone_path['origin_frustum']
             self.assertEqual(initial['position'], engine.drone_path['origin'])
@@ -99,3 +107,11 @@ class DroneCentersTest(unittest.TestCase):
     def test_no_valid_surface_fails_without_gaussian_fallback(self):
         with self.assertRaisesRegex(ValueError, '有效表面深度'):
             self.run_route(torch.zeros((2, 2)))
+
+    def test_bright_edges_use_black_for_both_drone_routes(self):
+        route, *_ = self.run_route(edge_rgb=240)
+        self.assertTrue(all(view['background_color'] == [0., 0., 0.] for view in route))
+
+    def test_disabled_adversarial_background_uses_manual_color(self):
+        route, *_ = self.run_route(adversarial=False, manual=(.2, .4, .6))
+        self.assertTrue(all(view['background_color'] == [.2, .4, .6] for view in route))

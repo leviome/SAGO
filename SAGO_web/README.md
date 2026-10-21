@@ -182,7 +182,11 @@ Saved segmentation contains an `int32` ID vector with one entry per Gaussian in 
 
 ## Ground calibration and visualization
 
-The **Camera** panel provides RGB background controls (0–255) and a color picker, defaulting to **(0, 0, 0)** (black). The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+The **Camera** panel provides normalized RGB background controls (0–1) and a color picker, defaulting to **(0, 0, 0)** (black); **(1, 1, 1)** is white. The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+
+**Delete** removes the selected object record and returns all of its Gaussians to ID **0** (background), preserving their geometry. It also removes them from the current foreground. Undo/Redo restores or reapplies the edit; use **Save IDs** / **Save segmentation** to persist it to `SAGO_knowledge.json`. Other object IDs keep their numbers.
+
+**Adversarial background** is enabled by default in the 3D segmentation panel. Before mask padding, SAGO samples the selected prompt mask’s one-pixel inner boundary in the original RGB capture. A mean brightness below 0.5 selects white; otherwise black. The same background is used for all six drone tracking inputs and preview renders, while the main viewport keeps its manual color. Turn the option off to use the manual background for drone views too.
 
 **Three-point ground calibration** captures a view and lets you choose three distinct, non-collinear ground or tabletop positions. Rendered depth reconstructs their world coordinates. The unit normal is `normalize((P2 - P1) × (P3 - P1))`, initially oriented toward the camera; reverse it if needed, then apply the ground plane.
 

@@ -66,6 +66,9 @@ class FakeEngine:
             if op=='preview_correction':return dict(self.frame(),preview_id='preview',preview_count=3,target_id=data['target_id'])
             if op=='confirm_correction':
                 assert data['preview_id']=='preview';self.state['ids_dirty']=True
+            if op=='delete':
+                self.state['objects']=[o for o in self.state['objects'] if o['id']!=data['id']]
+                self.state['selected']=0;self.state['ids_dirty']=True
             if op=='save_ids':self.state['ids_dirty']=False
             if op=='rename':self.state['objects'][0]['name']=data['name']
             return self.frame()
@@ -101,10 +104,10 @@ class NativeTest(unittest.TestCase):
         w=self.window
         spin_until(lambda:not w.bridge.busy)
         self.assertEqual([c.value() for c in w.background_rgb],[0,0,0])
-        for control,value in zip(w.background_rgb,[32,64,128]):control.setValue(value)
+        for control,value in zip(w.background_rgb,[0.125,0.25,0.5]):control.setValue(value)
         w.background_rgb[-1].editingFinished.emit()
         spin_until(lambda:not w.bridge.busy)
-        self.assertEqual(self.engine.calls[-1][1]['background_color'],[32,64,128])
+        self.assertEqual(self.engine.calls[-1][1]['background_color'],[0.125,0.25,0.5])
         self.prompt_mode()
         self.assertTrue(all(not c.isEnabled() for c in w.background_rgb))
         self.assertFalse(w.background_picker.isEnabled())
@@ -179,6 +182,34 @@ class NativeTest(unittest.TestCase):
         w.present(self.engine.frame())
         self.assertEqual(w.objects.item(0,1).text(),'Updated')
 
+    def test_delete_button_uses_delete_action_and_returns_to_all(self):
+        w=self.window
+        spin_until(lambda:not w.bridge.busy)
+        self.engine.state['objects']=[dict(id='obj',number=1,name='Object',hidden=True,count=20)]
+        self.engine.state['selected']=20
+        w.present(self.engine.frame());w.objects.selectRow(0)
+        w.mode='foreground';w.display.setCurrentIndex(w.display.findData('foreground'))
+        w.delete_object.click()
+        spin_until(lambda:not w.bridge.busy)
+        self.assertTrue(any(a=='objects' and d.get('action')=='delete' and d.get('id')=='obj' for a,d in self.engine.calls))
+        self.assertFalse(any(d.get('action')=='remove' for a,d in self.engine.calls))
+        self.assertEqual(w.objects.rowCount(),0)
+        self.assertEqual(w.state['selected'],0)
+        self.assertEqual(w.mode,'all')
+        self.assertTrue(w.state['ids_dirty'])
+
+    def test_adversarial_background_defaults_on_and_can_be_disabled_before_refinement(self):
+        w=self.window
+        self.assertTrue(w.adversarial_background.isChecked())
+        self.prompt_mode()
+        w.gesture([10,10],[10,10],0,False)
+        spin_until(lambda:bool(w.masks) and not w.bridge.busy)
+        self.assertTrue(w.adversarial_background.isEnabled())
+        w.adversarial_background.setChecked(False)
+        w.segment();spin_until(lambda:w.state.get('selected')==20 and not w.capture)
+        data=[data for action,data in self.engine.calls if action=='apply'][-1]
+        self.assertIs(data['adversarial_background'],False)
+
     def test_default_language_model_lazy_load_and_auto_prompt(self):
         w=self.window
         self.assertEqual(w.prompt_check.text(),'Enter segmentation prompts (M)')
@@ -197,6 +228,36 @@ class NativeTest(unittest.TestCase):
         w.segment();spin_until(lambda:w.state.get('selected')==20 and not w.capture)
         self.assertEqual(w.mode,'foreground')
         self.assertEqual(next(d for a,d in reversed(self.engine.calls) if a=='apply')['level'],0)
+    def test_model_download_progress_does_not_replace_drone_views(self):
+        w=self.window;self.engine.load_delay=.2
+        w.load_model();dialog=w.model_dialog
+        w.drone_views=['existing']
+        w.progress(50,'Downloading SAM2 checkpoint…',dict(kind='model_download',stage='Downloading SAM2 checkpoint…',downloaded=1024**2,total=2*1024**2))
+        self.assertEqual(dialog.download_bar.value(),50)
+        self.assertEqual(dialog.download_size.text(),'1.0 / 2.0 MiB')
+        self.assertEqual(w.drone_views,['existing'])
+        w.progress(0,'Loading SAM2…',dict(kind='model_loading',stage='Loading SAM2…'))
+        self.assertEqual(dialog.download_bar.maximum(),0)
+        spin_until(lambda:not w.bridge.busy)
+        w.preview_timer.start(5000)
+        spin_until(lambda:not dialog.isVisible(),2500)
+        self.assertTrue(w.preview_timer.isActive())
+        w.preview_timer.stop()
+
+    def test_failed_model_download_retry_and_auto_close(self):
+        w=self.window;execute=self.engine.execute
+        def failing(action,data,progress,cancel):
+            if action=='load_model':raise ValueError('Download failed')
+            return execute(action,data,progress,cancel)
+        self.engine.execute=failing
+        w.load_model();dialog=w.model_dialog
+        spin_until(lambda:not w.bridge.busy)
+        self.assertTrue(dialog.retry_button.isVisible())
+        self.assertIn('Download failed',dialog.download_label.text())
+        self.engine.execute=execute;dialog.retry_button.click()
+        spin_until(lambda:w.loaded_model=='sam2' and not w.bridge.busy)
+        self.assertFalse(dialog.isVisible());self.assertIsNone(w.model_dialog)
+
     def test_stale_preview_is_discarded(self):
         self.prompt_mode();w=self.window;self.engine.preview_delay=.15
         w.gesture([12,12],[12,12],0,False)

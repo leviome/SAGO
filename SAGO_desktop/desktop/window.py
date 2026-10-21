@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 
 from desktop.bridge import EngineBridge
 from desktop.canvas import Viewport, decode_image
-from desktop.config import ROOT, DATA, read_config, write_config
+from desktop.config import ROOT, DATA, DEFAULT_CHECKPOINT, read_config, write_config
 from desktop.i18n import Translator
 
 
@@ -106,12 +106,12 @@ class MainWindow(QMainWindow):
         self.field(camera,'Original camera',self.preset)
         self.fov=self.spin(50,5,150);self.size=self.combo([('Auto',None)]+[(str(n),n) for n in (512,768,1024,1536,1920,2560)]);self.size.activated.connect(self.refresh)
         camera.addWidget(self.row(self.label('FOV'),self.fov,self.label('Render size'),self.size))
-        self.background_rgb=[QSpinBox() for _ in range(3)]
+        self.background_rgb=[QDoubleSpinBox() for _ in range(3)]
         for channel, control in zip(('R','G','B'),self.background_rgb):
-            control.setRange(0,255);control.setValue(0);control.setPrefix(channel+' ')
+            control.setRange(0,1);control.setDecimals(4);control.setSingleStep(.01);control.setValue(0);control.setPrefix(channel+' ')
             control.editingFinished.connect(self.refresh)
         self.background_picker=self.button('Choose color…',self.choose_background)
-        self.field(camera,'Background color R / G / B',self.row(*self.background_rgb,self.background_picker))
+        self.field(camera,'Background color R / G / B (0–1)',self.row(*self.background_rgb,self.background_picker))
         self.up=[self.spin(n,-1e8,1e8,5) for n in (0,-1,0)]
         self.target=[self.spin(0,-1e8,1e8,5) for _ in range(3)]
         self.field(camera,'Up X / Y / Z',self.row(*self.up));self.field(camera,'Target X / Y / Z',self.row(*self.target))
@@ -130,7 +130,8 @@ class MainWindow(QMainWindow):
         self.objects.verticalHeader().hide();self.objects.setColumnWidth(0,44);self.objects.setColumnWidth(2,60);self.objects.cellDoubleClicked.connect(lambda row,col:self.rename_object())
         objects.addWidget(self.objects)
         objects.addWidget(self.row(self.button('Select',lambda:self.selected_object_action('select')),self.button('Hide / Show',lambda:self.selected_object_action('hide'))))
-        objects.addWidget(self.row(self.button('Rename',self.rename_object),self.button('Delete',lambda:self.selected_object_action('remove'))))
+        self.delete_object=self.button('Delete',lambda:self.selected_object_action('delete'));self.translated(self.delete_object,'Delete object and return its Gaussians to background (ID 0)','setToolTip')
+        objects.addWidget(self.row(self.button('Rename',self.rename_object),self.delete_object))
         self.merge_a=QComboBox();self.merge_b=QComboBox();objects.addWidget(self.row(self.merge_a,self.merge_b))
         objects.addWidget(self.button('Merge IDs',self.merge_ids));objects.addWidget(self.button('Renumber IDs',lambda:self.object_action('renumber')))
         objects.addWidget(self.button('Save IDs',lambda:self.object_action('save_ids')))
@@ -171,6 +172,9 @@ class MainWindow(QMainWindow):
         self.padding=self.spin(2,0,50);self.field(prompts,'Padding (px)',self.padding)
         segment=self.section(right,'3D segmentation')
         self.operation=self.combo([('Replace','set'),('Add','add'),('Subtract','subtract'),('Intersect','intersect')]);self.field(segment,'Selection operation',self.operation)
+        self.adversarial_background=self.check('Adversarial background',checked=True)
+        self.translated(self.adversarial_background,'Choose black or white from the unpadded mask boundary; disable to use the manual background color.','setToolTip')
+        segment.addWidget(self.adversarial_background)
         self.segment_button=self.button('3D segmentation',self.segment);segment.addWidget(self.segment_button)
         self.add_id=self.button('Add ID',self.add_object);segment.addWidget(self.add_id)
         visual=self.section(right,'3D visualization')
@@ -282,7 +286,10 @@ class MainWindow(QMainWindow):
             self.finish_cancel_round();return
         self.message(message,True)
         if action=='load_model' and self.model_dialog:
-            self.model_dialog.close();self.model_dialog=None
+            self.model_dialog.download_label.setText(self.tr.backend_text(message))
+            self.model_dialog.download_bar.hide();self.model_dialog.download_size.hide()
+            self.model_dialog.retry_button.show()
+            self.model_dialog.cancel_button.setText(self.text('Close'))
         if action=='apply':self.set_capture(None)
         self.update_controls()
         if getattr(self,'release_pending',False):
@@ -296,8 +303,17 @@ class MainWindow(QMainWindow):
     def progress(self,value,message,views):
         if self.cancel_round_pending:return
         maximum=6 if self.bridge.action=='apply' else 100
-        self.progress_bar.setValue(round(value/maximum*100));self.progress_message=self.tr.backend_text(message)
-        if views:self.drone_views=views
+        self.progress_bar.setValue(round(value/maximum*100));self.progress_message=self.text(self.tr.backend_text(message))
+        if isinstance(views,dict) and views.get('kind') in ('model_download','model_loading'):
+            if self.model_dialog:
+                dialog=self.model_dialog
+                dialog.download_label.setText(self.text(views['stage']))
+                if views['kind']=='model_loading':
+                    dialog.download_bar.setRange(0,0);dialog.download_size.clear()
+                    self.elapsed();return
+                dialog.download_bar.setRange(0,100);dialog.download_bar.setValue(value)
+                dialog.download_size.setText(f"{views['downloaded']/1024**2:.1f} / {views['total']/1024**2:.1f} MiB")
+        elif views:self.drone_views=views
         self.elapsed()
 
     def present(self,result):
@@ -317,12 +333,16 @@ class MainWindow(QMainWindow):
         self.scene_info.setText(f"{result.get('scene','')}\n{result.get('count',0):,} Gaussians")
         self.stats.setText(f"{result.get('selected',0):,} / {result.get('count',0):,}")
         self.ids_info.setText(('● ' if result.get('ids_dirty') else '')+str(result.get('knowledge_path') or ''))
+        display=result.get('display',{})
+        if display.get('foreground_ids') is not None:
+            self.foreground_ids=set(display['foreground_ids'])
+            self.known_objects={o['id'] for o in result.get('objects',[])}
         self.refresh_objects();self.update_controls();self.canvas.update()
 
     def choose_background(self):
-        color=QColorDialog.getColor(QColor(*[c.value() for c in self.background_rgb]),self,self.text('Background color'))
+        color=QColorDialog.getColor(QColor.fromRgbF(*[c.value() for c in self.background_rgb]),self,self.text('Background color'))
         if color.isValid():
-            for control,value in zip(self.background_rgb,(color.red(),color.green(),color.blue())):
+            for control,value in zip(self.background_rgb,(color.redF(),color.greenF(),color.blueF())):
                 control.setValue(value)
             self.refresh()
 
@@ -335,6 +355,7 @@ class MainWindow(QMainWindow):
         self.canvas.blocked=busy and not (self.capture and self.bridge.action=='preview')
         self.canvas.mode='correction' if self.correction else 'ground' if self.ground else 'prompt' if self.capture else 'camera'
         self.canvas.foreground=self.fg;self.canvas.background=self.bg;self.canvas.box=self.box;self.canvas.ground=self.ground
+        self.adversarial_background.setEnabled(scene and not busy and not self.ground and not self.correction)
         for widget in (*self.background_rgb,self.background_picker):widget.setEnabled(scene and not busy and not editing)
         for widget in (self.display,self.render_mode):widget.setEnabled(scene and not busy and not editing)
         self.correct_button.setEnabled(scene and self.mode=='all' and not self.capture and not self.ground and not busy)
@@ -426,6 +447,8 @@ class MainWindow(QMainWindow):
             self.message(self.text('Exit prompts or calibration first.'),True);return
         if self.bridge.busy or not self.state.get('count'):return
         self.release();self.correction=False
+        if action=='delete':
+            self.mode='all';self.display.setCurrentIndex(self.display.findData('all'))
         def done(result):
             if after:after()
         self.call('objects',dict(action=action,**data),done)
@@ -551,20 +574,39 @@ class MainWindow(QMainWindow):
     def choose_candidate(self,index):
         if 0<=index<len(self.masks):self.level=index;self.canvas.image=decode_image(self.masks[index]);self.canvas.update()
     def load_model(self,after=None):
-        if self.bridge.busy:return
+        if self.bridge.busy or self.model_dialog:return
         version='sam2'
         dialog=QDialog(self);dialog.setWindowTitle(self.text('Loading model…'));layout=QVBoxLayout(dialog)
-        label=QLabel(version.upper());layout.addWidget(label);dialog.setModal(False);dialog.show();self.model_dialog=dialog
+        label=QLabel(version.upper());label.setWordWrap(True);layout.addWidget(label)
+        dialog.download_label=label
+        dialog.download_bar=QProgressBar();dialog.download_bar.setRange(0,0);layout.addWidget(dialog.download_bar)
+        dialog.download_size=QLabel();layout.addWidget(dialog.download_size)
+        def retry():
+            dialog.close();self.load_model(after)
+        dialog.retry_button=self.button('Retry download',retry);dialog.retry_button.hide()
+        dialog.cancel_button=self.button('Cancel',dialog.close)
+        layout.addWidget(self.row(dialog.retry_button,dialog.cancel_button))
+        dialog.load_succeeded=False
+        def closed():
+            if dialog.load_succeeded:return
+            self.preview_timer.stop()
+            if self.model_dialog is dialog:self.model_dialog=None
+            if self.bridge.busy and self.bridge.action=='load_model':self.bridge.cancel()
+        dialog.finished.connect(closed)
+        dialog.setModal(False);dialog.show();self.model_dialog=dialog
         def done(result):
+            dialog.load_succeeded=True
             self.loaded_model=version
             label.setText(f"{version.upper()} · {result['model_load_seconds']:.2f} s")
+            dialog.download_bar.setRange(0,100);dialog.download_bar.setValue(100)
+            dialog.retry_button.hide();dialog.cancel_button.setText(self.text('Close'))
             timer=QTimer(dialog);timer.setSingleShot(True);timer.timeout.connect(dialog.close);timer.start(1200)
             self.model_dialog=None
             if after:after()
         self.call('load_model',{'model':version},done)
     def segment(self):
         if not self.capture or not self.masks or self.bridge.busy:return
-        data={'capture':self.capture,'model':'sam2','level':self.level,'padding':self.padding.value(),'operation':self.operation.currentData(),'drone':True}
+        data={'capture':self.capture,'model':'sam2','level':self.level,'padding':self.padding.value(),'operation':self.operation.currentData(),'adversarial_background':self.adversarial_background.isChecked(),'drone':True}
         self.drone_views=[]
         def done(result):
             self.release();self.mode='foreground';self.display.setCurrentIndex(1)
@@ -690,7 +732,7 @@ class MainWindow(QMainWindow):
         if self.bridge.busy:return
         dialog=QDialog(self);dialog.setWindowTitle(self.text('Preferences…'));layout=QVBoxLayout(dialog)
         fields={}
-        for key,title,default in (('sam2_checkpoint','SAM2 checkpoint',ROOT/'models/sam2_hiera_large.pt'),('output','Output folder',self.output)):
+        for key,title,default in (('sam2_checkpoint','SAM2 checkpoint',DEFAULT_CHECKPOINT),('output','Output folder',self.output)):
             edit=QLineEdit(str(self.settings.get(key) or default));fields[key]=edit
             def browse(e=edit,directory=key=='output'):
                 path=QFileDialog.getExistingDirectory(dialog,title,e.text()) if directory else QFileDialog.getOpenFileName(dialog,title,e.text())[0]

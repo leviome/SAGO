@@ -91,6 +91,7 @@ function controls() {
         button.disabled=!hasScene || !!capture || !!groundSession || backgroundBox;
     }
     for (const id of ['background-color','background-r','background-g','background-b']) $(id).disabled = !hasScene || !!capture || !!groundSession || backgroundBox;
+    $('adversarial-background').disabled = !hasScene || !!groundSession || backgroundBox;
     $('save-ids').disabled = !hasScene;
     const hasObjects=hasScene && state.objects.length>0;
     const canCorrect=hasScene && ($('show-background').checked || ($('show-foreground').checked && state.objects.some(o=>foregroundIds.has(o.id) && !o.hidden)));
@@ -156,7 +157,6 @@ function release() { capture = null; groundSession = null; drag=null; clearPromp
 async function present(result) {
     if (result.camera) {
         correctionPreview = result.preview_id ? {preview_id:result.preview_id,preview_count:result.preview_count} : null;
-        const firstSnapshot=!state;
         state = result;
         if(result.render_mode)renderMode=result.render_mode;
         if(result.background_color) setBackgroundColor(result.background_color);
@@ -167,7 +167,7 @@ async function present(result) {
             if(result.display.foreground_ids!==null) {
                 foregroundIds.clear();
                 result.display.foreground_ids.forEach(id=>foregroundIds.add(id));
-                if(firstSnapshot) result.objects.forEach(obj=>knownObjects.add(obj.id));
+                result.objects.forEach(obj=>knownObjects.add(obj.id));
             }
         }
         const v = state.camera;
@@ -366,9 +366,9 @@ function renderObjects() {
         };
         name.append(edit);
         const count = document.createElement('small'); localized(count, "textContent", () => t("ID {0} · {1} 高斯", obj.number, obj.count.toLocaleString())); name.append(count); row.append(name);
-        for (const [action, label, title] of [['select',t("选择"),t("设为当前选区")],['hide', obj.hidden ? t("显示") : t("隐藏"),t("切换物体显示")],['delete','×',t("移除物体记录")]]) {
+        for (const [action, label, title] of [['select',t("选择"),t("设为当前选区")],['hide', obj.hidden ? t("显示") : t("隐藏"),t("切换物体显示")],['delete',t("删除"),t("删除物体，并将对应高斯归为背景（ID 0）")]]) {
             const button = document.createElement('button'); button.textContent = label; button.title = title;
-            button.onclick = run(async () => { const result = await job('objects', { action, id: obj.id }); release(); mode = 'all'; updateTabs(); await present(result); });
+            button.onclick = run(async () => { const result = await job('objects', { action, id: obj.id }); release(); mode = 'all'; updateTabs(); await present(result); if(action==='delete') status(() => t("物体已删除，对应高斯已归为 ID 0；可撤销，保存分割结果后写入场景知识文件")); });
             row.append(button);
         }
         $('objects').append(row);
@@ -571,7 +571,7 @@ $('text-prompt').addEventListener('compositionstart',()=> { composingPrompt=true
 $('text-prompt').addEventListener('compositionend',()=> { composingPrompt=false; schedulePreview(450); });
 for (const name of ['point','box']) bind(`${name}-tool`, () => { tool = name; $('point-tool').classList.toggle('active', tool==='point'); $('box-tool').classList.toggle('active', tool==='box'); });
 bind('drone', async () => {
-    const result = await job('apply', { capture, model:selectedModel(), level, padding: Number($('padding').value), operation: $('operation').value, drone:true });
+    const result = await job('apply', { capture, model:selectedModel(), level, padding: Number($('padding').value), operation: $('operation').value, adversarial_background:$('adversarial-background').checked, drone:true });
     release(); mode = 'foreground'; updateTabs(); await present(result);
     status(() => t("六视角细化完成，选中 {0} 个高斯", result.selected.toLocaleString()));
 });
@@ -820,16 +820,16 @@ run(async () => {
 
 function setBackgroundColor(rgb) {
     ['r','g','b'].forEach((c,i)=>{$(`background-${c}`).value=rgb[i];});
-    $('background-color').value='#'+rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+    $('background-color').value='#'+rgb.map(c=>Math.round(c*255).toString(16).padStart(2,'0')).join('');
 }
 $('background-color').onchange=run(async()=>{
     const hex=$('background-color').value;
-    setBackgroundColor([1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));
+    setBackgroundColor([1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255));
     await present(await job('frame',{mode}));
 });
 for(const channel of ['r','g','b']) $(`background-${channel}`).onchange=run(async()=>{
     const rgb=['r','g','b'].map(c=>Number($(`background-${c}`).value));
-    if(rgb.some(c=>!Number.isInteger(c)||c<0||c>255)) {
+    if(rgb.some(c=>!Number.isFinite(c)||c<0||c>1)) {
         setBackgroundColor(state?.background_color || [0,0,0]);
         return;
     }

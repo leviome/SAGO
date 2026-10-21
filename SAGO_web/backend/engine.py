@@ -7,6 +7,7 @@ import hashlib
 import colorsys
 import json
 from collections import deque
+from copy import deepcopy
 from contextlib import ExitStack
 from pathlib import Path
 import uuid
@@ -125,7 +126,8 @@ class Engine:
 
     def history_state(self):
         selection = None if self.selection is None else self.selection.cpu().numpy().copy()
-        return selection, [dict(o) for o in self.objects], self.labels().copy(), self.next_object_id
+        return (selection, [dict(o) for o in self.objects], self.labels().copy(), self.next_object_id,
+                None if self.foreground_ids is None else set(self.foreground_ids), deepcopy(self.drone_path))
 
     def save_history(self):
         self.undo_stack.append(self.history_state())
@@ -137,7 +139,8 @@ class Engine:
         if not src:
             return
         dst.append(self.history_state())
-        selection, self.objects, self.instance_ids, self.next_object_id = src.pop()
+        (selection, self.objects, self.instance_ids, self.next_object_id,
+         self.foreground_ids, self.drone_path) = src.pop()
         self.selection = None if selection is None else self.torch.from_numpy(selection).cuda()
         self.ids_dirty = True
         self.invalidate()
@@ -205,7 +208,7 @@ class Engine:
     def frame(self, mode='all', highlight=None):
         self.require_scene()
         self.correction_pending = None
-        render_options = {'bg_color': self.torch.tensor(self.background_color, dtype=self.torch.float32) / 255}
+        render_options = {'bg_color': self.torch.tensor(self.background_color, dtype=self.torch.float32)}
         cam = self.camera()
         if mode in ('all', 'multi'):
             legacy = mode == 'multi'
@@ -259,7 +262,7 @@ class Engine:
         else:
             width, height = self.dimensions(self.view)
             image = np.empty((height, width, 3), dtype=np.uint8)
-            image[:] = self.background_color
+            image[:] = np.rint(np.asarray(self.background_color) * 255).astype(np.uint8)
         overlays = self.visualization(cam)
         if mode == 'multi' or (mode == 'all' and self.id_colors):
             # A single-object box would be misleading while inspecting several objects.
@@ -545,7 +548,7 @@ class Engine:
                 raise ValueError('当前前景为空，请撤销或清空选区后重新提示')
         with self.torch.no_grad():
             rendered = self.render_simple(cam, self.model, extra_gau_mask=scope,
-                                          bg_color=self.torch.tensor(self.background_color, dtype=self.torch.float32) / 255)
+                                          bg_color=self.torch.tensor(self.background_color, dtype=self.torch.float32))
         rgb = self.rgb(rendered['render'])
         token = uuid.uuid4().hex
         self.capture = dict(id=token, version=self.scene_version, cam=cam, rgb=rgb,
@@ -814,6 +817,11 @@ class Engine:
         run_id = uuid.uuid4().hex
         tracking_stats = None
         with self.torch.no_grad(), ExitStack() as cleanup:
+            from backend.drone_background import choose_drone_background
+            # Sample the selected, original mask before the frustum filter expands it.
+            drone_background = choose_drone_background(c.get('rgb'), mask.detach().cpu().numpy(),
+                enabled=data.get('adversarial_background', True), manual=self.background_color)
+            drone_color = self.torch.tensor(drone_background['color'], dtype=self.torch.float32)
             filt = self.utils.MaskShapedFrustumFilter(self.model, padding=padding, self_val=True,
                 initial_cam=c['cam'], initial_mask=mask)
             result = filt.filtering(mask, c.get('gaussian_mask'), c['cam'], self_val=False, first_view_prompt=True) & self.active()
@@ -846,7 +854,7 @@ class Engine:
                 if not bool(self.torch.isfinite(center).all()):
                     raise ValueError('首视角表面中心无效，请调整视角或提示')
                 drones = [self.Drone(up_vector=self.view['up'], initial_view=c['cam'], look_at=center,
-                    memory=memory, ptr=ptr, drone_id=i) for i in range(2)]
+                    memory=memory, ptr=ptr, drone_id=i, background_color=drone_color.clone()) for i in range(2)]
                 for drone in drones:
                     drone.debug_verbose = False
                 for angle in (45, 90, 135):
@@ -900,6 +908,7 @@ class Engine:
                             position=pose.camera_center.detach().cpu().tolist(),
                             frustum=camera_frustum(pose),
                             center=center.tolist(), center_source=center_source, input_count=input_count,
+                            background_color=list(drone_background['color']),
                             lost=tracked is None or not bool(tracked.any()), **assets))
                         progress(len(reports), f'完成 {len(reports)}/6，剩余 {int(result.sum()):,} 个高斯', list(reports))
             if cancel.is_set():
@@ -914,7 +923,8 @@ class Engine:
                 initial_frustum = camera_frustum(c['cam'])
                 distance = np.linalg.norm(np.asarray(initial_frustum['position'])-reports[0]['center'])
                 initial_frustum['depth'] = float(np.clip(size*.3, distance*.025, distance*.2))
-                self.drone_path = dict(origin=initial_frustum['position'], origin_frustum=initial_frustum, views=reports)
+                self.drone_path = dict(origin=initial_frustum['position'], origin_frustum=initial_frustum, views=reports,
+                                       background=drone_background)
             if self.selection is None or operation == 'set':
                 self.selection = result
             elif operation == 'add':
@@ -926,7 +936,7 @@ class Engine:
             self.invalidate()
         self.torch.cuda.synchronize()
         seconds = time.perf_counter() - started - visualization_seconds
-        return dict(route=reports, model=version, tracking_stats=tracking_stats, timing=dict(model=version, preview_seconds=visualization_seconds, refine_seconds=seconds, total_seconds=seconds+c.get('segmentation_seconds', 0.)), **self.frame('foreground'))
+        return dict(route=reports, drone_background=drone_background, model=version, tracking_stats=tracking_stats, timing=dict(model=version, preview_seconds=visualization_seconds, refine_seconds=seconds, total_seconds=seconds+c.get('segmentation_seconds', 0.)), **self.frame('foreground'))
 
     def objects_action(self, data):
         self.require_scene()
@@ -1023,8 +1033,16 @@ class Engine:
             elif action == 'hide':
                 obj['hidden'] = not obj['hidden']
             else:
-                self.labels()[self.labels() == obj['number']] = 0
+                removed = self.labels() == obj['number']
+                if self.selection is not None:
+                    remaining = self.selection & ~self.torch.from_numpy(removed).cuda()
+                    if bool((self.selection & ~remaining).any()):
+                        self.selection = remaining if bool(remaining.any()) else None
+                        self.drone_path = None
+                self.labels()[removed] = 0
                 self.objects.remove(obj)
+                if self.foreground_ids is not None:
+                    self.foreground_ids.discard(obj['id'])
             if action != 'select':
                 self.ids_dirty = True
             self.invalidate()

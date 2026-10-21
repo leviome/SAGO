@@ -7,21 +7,26 @@ import unittest
 from unittest.mock import patch
 
 import torch
+import numpy as np
 from backend.engine import Engine
 
 
 class DroneCentersTest(unittest.TestCase):
-    def run_route(self, depth=None, reject_first=False, text_candidates=False):
+    def run_route(self, depth=None, reject_first=False, text_candidates=False,
+                  edge_rgb=32, adversarial=True, manual=(0, 0, 0), semantic_version=None):
         with tempfile.TemporaryDirectory() as root:
             engine = Engine('unused.pt', root)
             engine.torch = torch
+            engine.background_color = list(manual)
             xyz = torch.arange(24, dtype=torch.float32).reshape(8, 3)
             engine.model = SimpleNamespace(get_xyz=xyz)
             engine.view = {'up': [0, -1, 0]}
             mask = torch.ones((2, 2), dtype=torch.bool)
-            capture = dict(masks=[mask], depth=torch.ones((2, 2)) if depth is None else depth,
+            capture = dict(rgb=np.full((2, 2, 3), edge_rgb, np.uint8), masks=[mask], depth=torch.ones((2, 2)) if depth is None else depth,
                            cam=SimpleNamespace(world_view_transform=torch.eye(4), FoVx=1., FoVy=.8), encoded=[None], preds=torch.ones((1, 1)),
                            score=None, pointers=torch.ones((1, 1)))
+            if semantic_version:
+                capture.update(model=semantic_version, semantic_prompts={})
             if text_candidates:
                 capture['masks'] = [mask]*8
                 capture['sam2_candidates'] = [dict(preds=torch.full((1, 1), i),
@@ -53,9 +58,13 @@ class DroneCentersTest(unittest.TestCase):
                     return result
             class Drone:
                 def __init__(drone_self, **kw):
+                    expected = ([1., 1., 1.] if edge_rgb < 128 else [0., 0., 0.]) if adversarial else list(manual)
+                    torch.testing.assert_close(kw['background_color'], torch.tensor(expected, dtype=torch.float32))
                     if text_candidates:
                         self.assertEqual(kw['ptr'][0].item(), 14)
                     drone_self.prev_mems, drone_self.prev_ptrs = deque(), deque()
+                    drone_self.background_color = kw['background_color']
+                    drone_self.distance, drone_self.initial_yaw, drone_self.up_vector = 1., 0., [0., -1., 0.]
                 def return_camera_pose(self, yaw, pitch, center):
                     poses.append(center.clone())
                     return SimpleNamespace(world_view_transform=torch.eye(4), FoVx=1., FoVy=.8)
@@ -67,8 +76,35 @@ class DroneCentersTest(unittest.TestCase):
                 MaskShapedFrustumFilter=lambda *a, **kw: Filter(),
                 masking_for_fg=lambda model, selected: SimpleNamespace(get_xyz=model.get_xyz[selected]),
                 mask_average_location=surface, load_3dgs_camera=lambda *a, **kw: None)
-            with patch.object(torch.cuda, 'synchronize'):
-                result = engine.apply({'drone': True, 'level': 4 if text_candidates else 0}, lambda *a: None, threading.Event())
+            semantic_inputs, semantic_previews, closed = [], [], []
+            if semantic_version:
+                def step(route, side, rgb):
+                    semantic_inputs.append(rgb.copy())
+                    return np.ones((1, 2, 2), bool), {}
+                engine.sam3_client = SimpleNamespace(start_route=lambda *a, **kw: {'route': 'route'},
+                    step_route=step, finish_step=lambda *a: {}, close_route=closed.append)
+                engine.utils.sphere2params = lambda *a, **kw: SimpleNamespace(world_view_transform=torch.eye(4), FoVx=1., FoVy=.8)
+                def render(cam, fg, bg_color):
+                    return {'render': bg_color[:, None, None].expand(3, 2, 2)}
+                engine.render_simple = render
+                engine.save_drone_preview = lambda run, index, bgr, tracked: semantic_previews.append(bgr.copy()) or {}
+            original_to = torch.Tensor.to
+            def cpu_to(tensor, *args, **kw):
+                if args and args[0] == 'cuda:0':return tensor
+                return original_to(tensor, *args, **kw)
+            with patch.object(torch.cuda, 'synchronize'), patch.object(torch.Tensor, 'to', cpu_to):
+                result = engine.apply({'drone': True, 'level': 4 if text_candidates else 0, 'adversarial_background': adversarial}, lambda *a: None, threading.Event())
+            for report in result['route']:
+                self.assertEqual(report['background_color'], result['drone_background']['color'])
+            self.assertEqual(engine.drone_path['background'], result['drone_background'])
+            if semantic_version:
+                self.assertEqual(closed, ['route'])
+                self.assertEqual(len(semantic_inputs), 6)
+                self.assertEqual(len(semantic_previews), 6)
+                byte_color = np.rint(np.array(result['drone_background']['color']) * 255).astype(np.uint8)
+                for rgb, bgr in zip(semantic_inputs, semantic_previews):
+                    np.testing.assert_array_equal(rgb, np.broadcast_to(byte_color, rgb.shape))
+                    np.testing.assert_array_equal(rgb[:, :, ::-1], bgr)
             self.assertEqual(engine.drone_path['origin'], [0., 0., 0.])
             initial = engine.drone_path['origin_frustum']
             self.assertEqual(initial['position'], engine.drone_path['origin'])
@@ -99,3 +135,17 @@ class DroneCentersTest(unittest.TestCase):
     def test_no_valid_surface_fails_without_gaussian_fallback(self):
         with self.assertRaisesRegex(ValueError, '有效表面深度'):
             self.run_route(torch.zeros((2, 2)))
+
+    def test_bright_edges_use_black_for_both_drone_routes(self):
+        route, *_ = self.run_route(edge_rgb=240)
+        self.assertTrue(all(view['background_color'] == [0., 0., 0.] for view in route))
+
+    def test_disabled_adversarial_background_uses_manual_color(self):
+        route, *_ = self.run_route(adversarial=False, manual=(.2, .4, .6))
+        self.assertTrue(all(view['background_color'] == [.2, .4, .6] for view in route))
+
+    def test_semantic_tracking_and_previews_share_the_selected_background(self):
+        for version in ('sam3', 'sam3.1'):
+            for brightness in (0, 255):
+                with self.subTest(model=version, edge_rgb=brightness):
+                    self.run_route(semantic_version=version, edge_rgb=brightness)
