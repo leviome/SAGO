@@ -16,7 +16,7 @@ from backend import file_picker
 from backend.engine import Engine, Cancelled
 
 ROOT = Path(__file__).resolve().parent.parent
-ACTIONS = {'ground', 'load_model', 'load', 'view', 'frame', 'capture', 'preview', 'apply', 'objects', 'export', 'gif', 'pick'}
+ACTIONS = {'ground', 'load_model', 'load', 'view', 'frame', 'capture', 'preview', 'apply', 'objects', 'export', 'gif', 'pick', 'semantic'}
 
 
 def create_app(checkpoint, output=None, engine=None):

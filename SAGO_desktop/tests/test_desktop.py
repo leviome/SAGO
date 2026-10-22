@@ -60,6 +60,9 @@ class FakeEngine:
             self.state['selected']=20;return dict(self.frame(),timing={'refine_seconds':.1})
         if action=='objects':
             op=data['action']
+            if op=='complete':
+                self.state['selected']=25
+                return dict(self.frame(),completion=dict(added=5,selected=25))
             if op in ('save','add_id'):
                 self.state['objects'].append(dict(id='obj',number=1,name=data.get('name') or 'Object',hidden=op=='add_id',count=20))
                 self.state['selected']=0 if op=='add_id' else 20;self.state['ids_dirty']=True
@@ -72,6 +75,12 @@ class FakeEngine:
             if op=='save_ids':self.state['ids_dirty']=False
             if op=='rename':self.state['objects'][0]['name']=data['name']
             return self.frame()
+        if action=='semantic':
+            if data['operation']=='build':return dict(indexed=1,updated=1,saved_path='/tmp/SAGO_knowledge.json')
+            if data['operation']=='clear':
+                self.state['semantic_match']=None;return self.frame()
+            self.state['semantic_match']='obj'
+            return dict(self.frame(),results=[dict(id='obj',number=1,name='Chair',score=.345)],stale_ids=[])
         if action=='gif':return {'items':[]}
         if action=='ground':
             if data['operation'] in ('apply','cancel'):return self.frame()
@@ -97,6 +106,30 @@ class NativeTest(unittest.TestCase):
         self.window.close();spin_until(lambda:not self.window.bridge.thread.isRunning())
         self.window.deleteLater();APP.processEvents()
         self.settings_patch.stop();self.write_patch.stop();self.temp.cleanup()
+    def test_semantic_build_search_and_edit_locks(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        self.assertFalse(w.semantic_build.isEnabled())
+        self.engine.state['objects']=[dict(id='obj',number=1,name='Chair',hidden=True,count=20)]
+        w.present(self.engine.frame());w.update_controls()
+        self.assertTrue(w.semantic_build.isEnabled());self.assertFalse(w.semantic_search.isEnabled())
+        w.gif_elevation.setValue(35);w.semantic_build.click();spin_until(lambda:not w.bridge.busy)
+        action,data=self.engine.calls[-1]
+        self.assertEqual(action,'semantic');self.assertEqual(data['operation'],'build');self.assertEqual(data['elevation_degrees'],35)
+        self.assertIn('Indexed 1 objects',w.semantic_results.text())
+        w.semantic_query.setText('a chair');self.assertTrue(w.semantic_search.isEnabled())
+        QTest.keyClick(w.semantic_query,Qt.Key_Return);spin_until(lambda:not w.bridge.busy)
+        self.assertEqual(self.engine.calls[-1][1]['text'],'a chair')
+        self.assertIn('ID 1 · Chair · 0.345',w.semantic_results.text())
+        self.assertTrue(w.bbox.isChecked());self.assertTrue(w.canvas.show_bbox)
+        self.assertEqual(w.mode,'all');self.assertTrue(w.semantic_clear.isEnabled())
+        self.assertIn('not probabilities',w.semantic_results.text())
+        w.toggle_language();self.assertIn('分数不是概率',w.semantic_results.text());w.toggle_language()
+        w.semantic_clear.click();spin_until(lambda:not w.bridge.busy)
+        self.assertEqual(self.engine.calls[-1][1]['operation'],'clear');self.assertFalse(w.semantic_clear.isEnabled())
+        self.prompt_mode();self.assertFalse(w.semantic_build.isEnabled());self.assertFalse(w.semantic_search.isEnabled())
+        w.tr.language='zh'
+        self.assertEqual(w.tr.backend_text('Indexed objects: 1/2'),'已索引物体：1/2')
+
     def prompt_mode(self):
         self.window.prompt_check.click()
         spin_until(lambda:self.window.capture and self.window.loaded_model=='sam2' and not self.window.bridge.busy)
@@ -257,6 +290,86 @@ class NativeTest(unittest.TestCase):
         self.engine.execute=execute;dialog.retry_button.click()
         spin_until(lambda:w.loaded_model=='sam2' and not w.bridge.busy)
         self.assertFalse(dialog.isVisible());self.assertIsNone(w.model_dialog)
+
+    def test_black_white_background_toggle_and_prompt_lock(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        w.background_flip.click();spin_until(lambda:not w.bridge.busy)
+        self.assertEqual([c.value() for c in w.background_rgb],[1,1,1])
+        self.assertEqual(self.engine.calls[-1][1]['background_color'],[1,1,1])
+        w.background_flip.click();spin_until(lambda:not w.bridge.busy)
+        self.assertEqual([c.value() for c in w.background_rgb],[0,0,0])
+        self.prompt_mode();self.assertFalse(w.background_flip.isEnabled())
+
+    def test_held_wasd_stops_on_release_and_text_input_does_not_navigate(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy);w.canvas.setFocus()
+        QTest.keyPress(w.canvas,Qt.Key_W)
+        spin_until(lambda:any(a=='view' and 'move' in d for a,d in self.engine.calls))
+        QTest.keyRelease(w.canvas,Qt.Key_W);spin_until(lambda:not w.bridge.busy)
+        count=sum(a=='view' and 'move' in d for a,d in self.engine.calls)
+        QTest.qWait(150)
+        self.assertEqual(sum(a=='view' and 'move' in d for a,d in self.engine.calls),count)
+        data=next(d for a,d in self.engine.calls if a=='view' and 'move' in d)
+        self.assertGreater(data['move'][1],0);self.assertEqual(data['move'][0],0)
+        w.object_name.setFocus();QTest.keyClicks(w.object_name,'wasd');QTest.qWait(100)
+        self.assertEqual(w.object_name.text(),'wasd')
+        self.assertEqual(sum(a=='view' and 'move' in d for a,d in self.engine.calls),count)
+        w.quality_timer.stop();spin_until(lambda:not w.bridge.busy)
+        self.prompt_mode();w.canvas.setFocus();QTest.keyClick(w.canvas,Qt.Key_D);QTest.qWait(100)
+        self.assertEqual(sum(a=='view' and 'move' in d for a,d in self.engine.calls),count)
+
+    def test_right_drag_pans_before_release_and_prompt_right_click_stays_background(self):
+        from PySide6.QtCore import QPoint
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        center=w.canvas.rect().center()
+        QTest.mousePress(w.canvas,Qt.RightButton,pos=center)
+        QTest.mouseMove(w.canvas,center+QPoint(50,25))
+        spin_until(lambda:any(a=='view' and 'pan' in d for a,d in self.engine.calls))
+        self.assertIsNotNone(w.canvas.start)
+        QTest.mouseRelease(w.canvas,Qt.RightButton,pos=center+QPoint(50,25))
+        spin_until(lambda:not w.bridge.busy)
+        data=next(d for a,d in self.engine.calls if a=='view' and 'pan' in d)
+        self.assertGreater(data['pan'][0],0);self.assertGreater(data['pan'][1],0)
+        self.prompt_mode()
+        QTest.mouseClick(w.canvas,Qt.RightButton,pos=center)
+        self.assertEqual(len(w.bg),1);self.assertFalse(w.fg)
+
+    def test_escape_exits_when_text_field_has_focus(self):
+        w=self.window;w.quality_timer.stop();spin_until(lambda:not w.bridge.busy)
+        w.object_name.setFocus();QTest.keyClick(w.object_name,Qt.Key_Escape)
+        spin_until(lambda:not w.bridge.thread.isRunning() and not w.isVisible())
+        self.assertFalse(w.isVisible())
+
+    def test_escape_preserves_unsaved_result_confirmation(self):
+        from PySide6.QtWidgets import QMessageBox
+        w=self.window;w.quality_timer.stop();spin_until(lambda:not w.bridge.busy)
+        w.state['ids_dirty']=True;w.canvas.setFocus()
+        with patch('desktop.window.QMessageBox.question',return_value=QMessageBox.Cancel) as question:
+            QTest.keyClick(w.canvas,Qt.Key_Escape)
+            question.assert_called_once()
+        self.assertTrue(w.isVisible());self.assertTrue(w.bridge.thread.isRunning())
+
+    def test_escape_cancels_job_and_waits_before_exiting(self):
+        from PySide6.QtWidgets import QMessageBox
+        w=self.window;w.quality_timer.stop();spin_until(lambda:not w.bridge.busy)
+        self.engine.preview_delay=.2;w.call('preview',{})
+        w.canvas.setFocus()
+        with patch('desktop.window.QMessageBox.question',return_value=QMessageBox.Yes):
+            QTest.keyClick(w.canvas,Qt.Key_Escape)
+        self.assertTrue(w.bridge.cancel_event.is_set())
+        spin_until(lambda:not w.bridge.thread.isRunning() and not w.isVisible())
+        self.assertFalse(w.isVisible())
+
+    def test_volume_completion_buttons_follow_foreground_and_frozen_state(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        self.assertFalse(w.complete_cube.isEnabled());self.assertFalse(w.complete_cylinder.isEnabled())
+        self.engine.state['selected']=w.state['selected']=20;w.update_controls()
+        for button,shape in ((w.complete_cube,'cube'),(w.complete_cylinder,'cylinder')):
+            button.click();spin_until(lambda:not w.bridge.busy)
+            self.assertEqual(self.engine.calls[-1][1]['action'],'complete')
+            self.assertEqual(self.engine.calls[-1][1]['shape'],shape)
+            self.assertEqual(w.mode,'foreground');self.assertEqual(w.state['selected'],25)
+        w.toggle_language();self.assertEqual(w.complete_cylinder.text(),'圆柱体补全')
+        self.prompt_mode();self.assertFalse(w.complete_cube.isEnabled());self.assertFalse(w.complete_cylinder.isEnabled())
 
     def test_stale_preview_is_discarded(self):
         self.prompt_mode();w=self.window;self.engine.preview_delay=.15

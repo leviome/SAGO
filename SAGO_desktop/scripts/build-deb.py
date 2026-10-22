@@ -43,7 +43,7 @@ def main():
         debian=package/'DEBIAN';debian.mkdir()
         size=sum(p.stat().st_size for p in package.rglob('*') if p.is_file())//1024
         (debian/'control').write_text(f'''Package: sago-desktop
-Version: 1.1.7
+Version: 1.1.11
 Section: graphics
 Priority: optional
 Architecture: amd64
@@ -59,7 +59,7 @@ Description: Native Qt Gaussian segmentation desktop application
         for name in ('postinst','postrm'):
             script=debian/name
             script.write_text('#!/bin/sh\nset -e\nif command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi\nif command -v update-mime-database >/dev/null 2>&1; then update-mime-database /usr/share/mime || true; fi\nexit 0\n');script.chmod(0o755)
-        output=args.output/'sago-desktop_1.1.7_amd64.deb'
+        output=args.output/'sago-desktop_1.1.11_amd64.deb'
         subprocess.run(['dpkg-deb','--root-owner-group','-Zzstd','-z1','--build',str(package),str(output)],check=True)
         print(output)
 

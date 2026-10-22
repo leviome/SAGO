@@ -8,6 +8,12 @@ The interface defaults to English. Use the button in the upper-right corner to s
 
 **v2.0** includes SAM2, SAM3, and SAM3.1 support, text prompts, automatic 2D segmentation, multi-object IDs, ground calibration, visible-surface ID correction, and multiple rendering modes. See [CHANGELOG.md](CHANGELOG.md).
 
+## Foreground completion
+
+After creating a 3D foreground, use **Cube completion** or **Cylinder completion** in the 3D selection panel. Cube completion uses the same upright, minimum horizontal-area bounding box as the 3D BBOX display; its side lengths may differ. Cylinder completion fits the smallest enclosing circle of the foreground's horizontal projection and uses its minimum/maximum height. Both align to the current up vector.
+
+All scene Gaussian centers inside the volume join the current foreground, including occluded centers. Gaussian size/ellipse intersection is not used. Existing selected centers remain selected; outside centers and saved object IDs are unchanged. Existing object visibility settings remain in effect. Undo/Redo restores the selection; Add ID and export use the normal workflow. The controls are disabled for an empty foreground or during prompts, calibration and correction.
+
 ## Environment installation
 
 ### Requirements
@@ -139,7 +145,7 @@ The browser remembers the eight most recently loaded scenes. Removing a recent e
 
 ## Segmentation workflow
 
-1. Load a scene. Drag to orbit, Shift-drag or right-drag to pan, and scroll to zoom. The viewport fills the available rectangular space. Camera controls include up direction, target, field of view, and render resolution.
+1. Load a scene. Drag to orbit, right-drag or Shift-drag to pan continuously, hold **W/S** to move forward/backward along the view direction, **A/D** to strafe, and scroll to zoom. Releasing a key or leaving the window stops roaming; text inputs and segmentation/calibration/correction modes suspend it. The viewport fills the available rectangular space. Camera controls include up direction, target, field of view, and render resolution.
 2. Frame the target and press **M**, or enable **Enter segmentation prompts**, to capture the view.
 3. Add foreground points with the left mouse button, background points with the right button, or drag a box using the box tool. Points and boxes can be combined. If the selected model has text support configured, enter a short description such as `yellow rubber duck`.
 4. The 2D result updates automatically as prompts change. Text input is debounced by approximately 450 ms. Select the candidate that covers the intended object. SAM2 supplies four mask levels per detected target; SAM3 models supply instance candidates.
@@ -182,7 +188,7 @@ Saved segmentation contains an `int32` ID vector with one entry per Gaussian in 
 
 ## Ground calibration and visualization
 
-The **Camera** panel provides normalized RGB background controls (0–1) and a color picker, defaulting to **(0, 0, 0)** (black); **(1, 1, 1)** is white. The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+The **Camera** panel provides normalized RGB background controls (0–1) and a color picker, defaulting to **(0, 0, 0)** (black); **(1, 1, 1)** is white. The **Black / White** button switches directly to white for a dark background or black for a light background. The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
 
 **Delete** removes the selected object record and returns all of its Gaussians to ID **0** (background), preserving their geometry. It also removes them from the current foreground. Undo/Redo restores or reapplies the edit; use **Save IDs** / **Save segmentation** to persist it to `SAGO_knowledge.json`. Other object IDs keep their numbers.
 
@@ -269,3 +275,15 @@ The server binds to `127.0.0.1` and uses a single shared workspace with serializ
 SAGO is based on **Online Segment 3D Gaussians via Launching Virtual Drones**, Liwei Liao, Rongjie Wang, and Ronggang Wang, ECCV 2026 ([paper](https://arxiv.org/abs/2607.01628)). See [CITATION.cff](CITATION.cff).
 
 The repository [LICENSE](LICENSE) does not replace licenses attached to bundled components or checkpoints. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for component licenses and [models/README.md](models/README.md) for checkpoint setup.
+
+### Semantic object knowledge
+
+After assigning object IDs, open **Semantic knowledge** and select **Build / update semantic knowledge**. This indexes every object, including hidden IDs, and saves both the current ID segmentation and its features atomically in the scene's `SAGO_knowledge.json`.
+
+Each object is rendered alone against white at four azimuths 90° apart. The camera uses the GIF settings for resolution and orbit elevation (60° by default), the same object-fit distance calculation, scene FOV, and calibrated up vector. Four normalized 512-dimensional CLIP image embeddings are stored per object, along with the exact model revisions and rendering parameters. Rendered views are temporary in-memory images; model weights remain in the external Hugging Face cache (`HF_HOME`, if configured) and are downloaded only on first use. No checkpoint is added to the project or installer.
+
+Enter a description and select **Find object IDs**. The same `openai/clip-vit-base-patch32` model encodes the text; results list object IDs, names, and the highest cosine similarity across their four views. These scores indicate relative similarity, not confidence probabilities. English descriptions work best with this CLIP model; queries must fit its 77-token context.
+
+Indices are reused after reopening a scene. Object membership changes invalidate the affected entries, deleted IDs are omitted, and renaming or renumbering preserves valid embeddings. Search reports IDs that need rebuilding and excludes their old features. A changed up vector also requires rebuilding. Updating the index refreshes changed entries and reuses unchanged ones with identical render settings. Cancellation or failure leaves the previous knowledge file intact.
+
+After a successful semantic search, the viewport switches to **All**, highlights the top-ranked object in gold, and enables its up-aligned 3D bounding box. A hidden or unchecked match is temporarily revealed without changing its visibility setting, ID membership, or current segmentation selection. The highlight follows camera movement. Use **Clear search highlight** to restore normal rendering; starting segmentation, editing objects, or loading a scene also clears it.

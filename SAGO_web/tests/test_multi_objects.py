@@ -107,6 +107,55 @@ class MultiObjectsTest(unittest.TestCase):
             self.assertEqual(e.objects,original[1])
             self.assertEqual(e.selection.tolist(),[False,False,True])
 
+    def test_search_highlight_reveals_only_match_preserves_ids_and_survives_frames(self):
+        with TemporaryDirectory() as folder:
+            e=self.engine(folder)
+            for i in range(2):
+                e.selection=torch.arange(3)==i
+                e.objects_action({'action':'add_id'})
+            e.selection=torch.tensor([False,False,True])
+            labels=e.labels().copy();objects=copy.deepcopy(e.objects);selection=e.selection.clone()
+            e.frame=Engine.frame.__get__(e);e.camera=Mock(return_value=object())
+            e.visualization=lambda cam:{'bbox':None}
+            e.image_url=lambda image:'image'
+            e.render_simple=Mock(return_value={'render':torch.zeros(3,1,1)})
+            e.natural_colors=lambda cam,mask:torch.full((int(mask.sum()),3),.2)
+            e.foreground_ids=set();e.semantic_highlight=e.objects[0]['id']
+            for unused in range(2):
+                result=e.frame('all')
+                options=e.render_simple.call_args.kwargs
+                self.assertEqual(options['extra_gau_mask'].tolist(),[True,False,True])
+                torch.testing.assert_close(options['override_color'][0],torch.tensor([1.,.8,.05]))
+                torch.testing.assert_close(options['override_color'][2],torch.tensor([.2,.2,.2]))
+                self.assertEqual(result['semantic_match'],e.objects[0]['id'])
+                self.assertEqual(result['visualization']['bbox']['center'],[0.,0.,0.])
+            np.testing.assert_array_equal(e.labels(),labels);self.assertEqual(e.objects,objects)
+            self.assertTrue(torch.equal(e.selection,selection));self.assertEqual(e.foreground_ids,set())
+            cleared=e.execute('semantic',{'operation':'clear'},Mock(),__import__('threading').Event())
+            self.assertIsNone(cleared['semantic_match']);self.assertIsNone(cleared['visualization']['bbox'])
+            self.assertEqual(e.render_simple.call_args.kwargs['extra_gau_mask'].tolist(),[False,False,True])
+            self.assertNotIn('override_color',e.render_simple.call_args.kwargs)
+
+    def test_search_bbox_survives_id_colors_and_matches_up_vector(self):
+        with TemporaryDirectory() as folder:
+            e=self.engine(folder)
+            e.selection=torch.tensor([True,True,False]);e.objects_action({'action':'save','name':'match'})
+            e.frame=Engine.frame.__get__(e);e.camera=Mock(return_value=object())
+            e.visualization=lambda cam:{'bbox':{'incorrect':'selection'}}
+            e.image_url=lambda image:'image'
+            e.render_simple=Mock(return_value={'render':torch.zeros(3,1,1)})
+            e.natural_colors=lambda cam,mask:torch.full((int(mask.sum()),3),.2)
+            e.id_colors=True;e.semantic_highlight=e.objects[0]['id'];e.view['up']=[0,1,1]
+            result=e.frame('all')
+            self.assertIn('corners',result['visualization']['bbox'])
+            np.testing.assert_allclose(result['visualization']['bbox']['axes'][2],[0,2**-.5,2**-.5],rtol=1e-5)
+            box=result['visualization']['bbox'];self.assertIs(e.frame('all')['visualization']['bbox'],box)
+            e.view['up']=[0,0,1]
+            self.assertIsNot(e.frame('all')['visualization']['bbox'],box)
+            # An object edit clears the transient match before rendering.
+            e.objects_action({'action':'rename','id':e.objects[0]['id'],'name':'renamed'})
+            self.assertIsNone(e.semantic_highlight)
+
     def test_invalid_multi_options_are_rejected(self):
         with TemporaryDirectory() as folder:
             e=self.engine(folder)

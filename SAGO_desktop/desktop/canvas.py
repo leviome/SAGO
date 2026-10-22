@@ -34,6 +34,7 @@ def project_segment(a, b, matrix, width, height):
 
 class Viewport(QWidget):
     gesture = Signal(object, object, int, bool)
+    pan = Signal(object)
     zoom = Signal(float)
     resized = Signal()
     dropped = Signal(str)
@@ -148,14 +149,23 @@ class Viewport(QWidget):
         self.setFocus();self.start=self.end=p
         self.button=2 if event.button()==Qt.RightButton else 0
         self.shift=bool(event.modifiers() & Qt.ShiftModifier)
+        self.pan_drag=self.mode=='camera' and (self.button==2 or self.shift)
         self.update()
 
     def mouseMoveEvent(self, event):
-        if self.start is not None:self.end=self.pixel(event.position(),True);self.update()
+        if self.start is not None:
+            previous=self.end;self.end=self.pixel(event.position(),True)
+            if self.pan_drag and previous is not None and self.end is not None:
+                self.pan.emit([(self.end[0]-previous[0])/self.image.width(),(self.end[1]-previous[1])/self.image.height()])
+            self.update()
 
     def mouseReleaseEvent(self, event):
         if self.start is None:return
         start=self.start;end=self.pixel(event.position(),True)
+        if self.pan_drag:
+            if end is not None and self.end is not None:
+                self.pan.emit([(end[0]-self.end[0])/self.image.width(),(end[1]-self.end[1])/self.image.height()])
+            self.start=self.end=None;self.update();return
         self.start=self.end=None;self.update()
         if end is not None:self.gesture.emit(start,end,self.button,self.shift)
 

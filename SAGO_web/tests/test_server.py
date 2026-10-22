@@ -50,6 +50,11 @@ class ServerTest(unittest.TestCase):
             time.sleep(.01)
         self.fail('job timed out')
 
+    def test_semantic_job_is_serialized_and_returns_results(self):
+        response=self.post('semantic', {'operation':'search','text':'a chair'})
+        self.assertEqual(response.status_code,202)
+        self.assertEqual(self.result(response.json['id'])['result']['action'],'semantic')
+
     def test_gif_capability(self):
         self.assertEqual(self.client.get('/api/config').json['gif_export_version'], 3)
 

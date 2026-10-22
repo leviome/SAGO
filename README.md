@@ -55,12 +55,14 @@ Run application commands from the corresponding application directory. The two b
 
 - Automatic 2D mask updates after point or box prompts, followed by six-view 3D refinement.
 - Multiple object IDs, editable names, merging, renumbering, foreground coloring, and scene-local persistence.
-- Ground calibration from three points and upright bounding boxes.
+- Ground calibration from three points, upright bounding boxes, and Cube/cylinder foreground completion.
 - Visible-Gaussian correction with preview and confirmation.
 - RGB, Splats, Points, and Depth rendering, plus Virtual Drone trajectories and camera frustums.
 - Foreground PLY/mask exports and single-orbit GIFs for the current selection or all saved objects.
+- Four-view CLIP semantic knowledge saved per scene; text search returns object IDs and highlights the top match with coloring and a 3D bbox.
+- Black/white background switching, right-drag panning and held-key WASD navigation.
 
-Desktop additionally provides automatic high-DPI rendering and **C** to cancel the current segmentation round. See each application's README for supported shortcuts and detailed behavior.
+Desktop additionally provides automatic high-DPI rendering, **C** to cancel the current segmentation round, and **Esc** to exit. See each application's README for supported shortcuts and detailed behavior.
 
 ## Models and releases
 
@@ -69,7 +71,7 @@ Model checkpoints, scenes, virtual environments, caches, generated outputs (apar
 - [Web model setup](SAGO_web/models/README.md)
 - [Desktop SAM2 setup](SAGO_desktop/models/README.md)
 
-Installers are published as GitHub Release assets. Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.7`, so Web and Desktop can be versioned independently. Desktop 1.1.7 and later installers include Qt and download SAM2 weights automatically on first entering segmentation prompts. Download progress, resume and retry are supported; checkpoints are verified and cached locally. Earlier Desktop installers bundled SAM2 weights.
+Installers are published as GitHub Release assets. The current Linux installer is available in [Desktop v1.1.11](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.11). Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.11`, so Web and Desktop can be versioned independently. Desktop 1.1.7 and later installers include Qt and download SAM2 weights automatically on first entering segmentation prompts. Download progress, resume and retry are supported; checkpoints are verified and cached locally. Earlier Desktop installers bundled SAM2 weights.
 
 The former standalone Web repository has been consolidated here. Its commit history is retained in this repository; the previous v2.0 snapshot is available under `legacy-web-v2.0`. Earlier commits remain accessible through the retained history. New development and releases belong to `leviome/SAGO`.
 

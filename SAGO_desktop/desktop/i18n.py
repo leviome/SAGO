@@ -4,6 +4,21 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 ZH = {
+ 'Clear search highlight':'取消搜索高亮',
+ 'Semantic knowledge':'语义知识库',
+ 'Build / update semantic knowledge':'建立 / 更新语义知识库',
+ 'All object IDs · Four views · GIF elevation and auto-fit distance · Also saves IDs':'所有物体 ID · 四个视图 · 沿用 GIF 俯仰角与自动取景距离 · 同时保存 ID',
+ 'Describe an object (English recommended)':'描述要查找的物体（建议英文）',
+ 'Find object IDs':'文本检索 ID',
+ 'Indexed {0} objects; updated {1}. Saved to {2}':'已索引 {0} 个物体，更新 {1} 个；已保存到 {2}',
+ 'Rebuild the index for IDs: {0}':'以下 ID 需要更新索引：{0}',
+ 'Ranked by maximum four-view cosine similarity; scores are not probabilities':'按四视图最高余弦相似度排序，分数不是概率',
+
+ 'Cube completion':'Cube 补全','Cylinder completion':'圆柱体补全',
+ 'Completion added {0} Gaussians':'补全新增 {0} 个高斯',
+ 'Exit application (Esc)':'退出程序 (Esc)',
+ 'Black / White':'黑 / 白',
+ 'Drag to rotate · Right/Shift drag to pan · WASD to move · Scroll to zoom':'拖动旋转 · 右键/Shift 拖动平移 · WASD 漫游 · 滚轮缩放',
  'Loading SAM2…':'正在加载 SAM2…',
     'Retry download':'重试下载',
  'Downloading SAM2 checkpoint…':'正在下载 SAM2 权重…',
@@ -64,9 +79,9 @@ class Translator(QObject):
         self.backend=json.loads((Path(__file__).parent/'backend_messages.json').read_text())
     def text(self,key):return ZH.get(key,key) if self.language=='zh' else key
     def backend_text(self,message):
-        if self.language=='zh':return message
-        if message in self.backend:return self.backend[message]
-        for source,target in self.backend.items():
+        mappings={value:key for key,value in self.backend.items()} if self.language=='zh' else self.backend
+        if message in mappings:return mappings[message]
+        for source,target in mappings.items():
             if '{' not in source:continue
             pattern=re.escape(source)
             keys=re.findall(r'\{(\d+)\}',source)

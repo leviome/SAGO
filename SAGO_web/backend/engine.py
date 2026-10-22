@@ -50,6 +50,8 @@ class Engine:
         self.drone_path = None
         self._bbox_selection = self._bbox = None
         self._bbox_up = None
+        self.semantic_highlight = None
+        self._semantic_box = None
 
     def initialize(self):
         if hasattr(self, 'torch'):
@@ -121,6 +123,7 @@ class Engine:
             knowledge_warning=self.knowledge_warning, ground_restored=self.ground_restored,
             ids_dirty=self.ids_dirty, ids_restored=self.ids_restored, next_object_id=self.next_object_id,
             render_mode=self.render_mode, background_color=list(self.background_color),
+            semantic_match=self.semantic_highlight,
             display=dict(show_background=self.show_background, show_foreground=self.show_foreground,
                          id_colors=self.id_colors, foreground_ids=None if self.foreground_ids is None else sorted(self.foreground_ids)))
 
@@ -225,6 +228,11 @@ class Engine:
                     mask &= self.selection
                 elif mode == 'background':
                     mask &= ~self.selection
+        semantic = next((o for o in self.objects if o['id'] == self.semantic_highlight), None) if mode == 'all' else None
+        if semantic is not None:
+            semantic_mask = self.labels() == semantic['number']
+            mask |= self.torch.from_numpy(semantic_mask).cuda()
+            highlight = semantic_mask if highlight is None else (highlight | semantic_mask)
         if highlight is not None and len(highlight):
             with self.torch.no_grad():
                 colors = render_options.get('override_color')
@@ -264,7 +272,13 @@ class Engine:
             image = np.empty((height, width, 3), dtype=np.uint8)
             image[:] = np.rint(np.asarray(self.background_color) * 255).astype(np.uint8)
         overlays = self.visualization(cam)
-        if mode == 'multi' or (mode == 'all' and self.id_colors):
+        if semantic is not None:
+            key = (semantic['id'], tuple(self.view['up']))
+            if self._semantic_box is None or self._semantic_box[0] != key:
+                from backend.visualization import upright_bbox
+                self._semantic_box = (key, upright_bbox(self.model.get_xyz[self.object_mask(semantic['number'])], self.view['up']))
+            overlays = dict(overlays, bbox=self._semantic_box[1])
+        elif mode == 'multi' or (mode == 'all' and self.id_colors):
             # A single-object box would be misleading while inspecting several objects.
             overlays = dict(overlays, bbox=None)
         result = dict(image=self.image_url(image), visualization=overlays, **self.snapshot())
@@ -426,6 +440,7 @@ class Engine:
         radius = float(self.torch.quantile(self.torch.linalg.norm(xyz-center, dim=1), .9)) * 2.5
         self.model, self.scene_name = model, path.name
         self.selection, self.objects = None, []
+        self.semantic_highlight = self._semantic_box = None
         self.instance_ids = np.zeros(len(xyz), dtype=np.int32)
         self.foreground_ids = None
         self.id_colors = False
@@ -532,6 +547,12 @@ class Engine:
             unit = np.asarray(v['up'])/np.linalg.norm(v['up'])
             if not np.allclose(unit, self.ground_plane['normal'], atol=1e-5):
                 self.ground_plane = None
+        if 'move' in data or 'pan' in data:
+            if self.capture is not None or self.ground_capture is not None or self.correction_pending is not None:
+                raise ValueError('Exit prompts, calibration or correction before navigating')
+            from backend.navigation import translated_target
+            inverse = self.camera().world_view_transform.inverse().detach().cpu().numpy()
+            v['target'] = translated_target(v, inverse, data)
         self.view = v
         self.invalidate()
         return self.frame(data.get('mode', 'all'))
@@ -940,9 +961,21 @@ class Engine:
 
     def objects_action(self, data):
         self.require_scene()
+        self.semantic_highlight = self._semantic_box = None
         action = data['action']
         if action in ('undo', 'redo'):
             self.history(action)
+        elif action == 'complete':
+            if self.capture is not None or self.ground_capture is not None or self.correction_pending is not None:
+                raise ValueError('Exit prompts, calibration or correction before completion')
+            from backend.completion import complete_foreground
+            result, volume = complete_foreground(self.model.get_xyz, self.selection, self.view['up'], data.get('shape'))
+            added = int((result & ~self.selection).sum())
+            if added:
+                self.save_history()
+                self.selection = result
+                self.invalidate()
+            return dict(completion=dict(added=added, selected=int(result.sum()), volume=volume), **self.frame('foreground'))
         elif action == 'save_ids':
             self.save_segmentation()
         elif action == 'preview_correction':
@@ -1091,6 +1124,12 @@ class Engine:
                 self.background_color = color
                 self.background_frame = None
                 self.correction_pending = None
+        if action == 'semantic':
+            from backend.semantic import semantic_action
+            result = semantic_action(self, data, progress, cancel)
+            if data.get('operation') in ('search', 'clear'):
+                return dict(result, **self.frame('all'))
+            return result
         if action == 'gif':
             from backend.gif_export import generate_gif
             return generate_gif(self, data, progress, cancel)
@@ -1115,7 +1154,9 @@ class Engine:
         if action == 'load': return self.load(data)
         if action == 'view': return self.update_view(data)
         if action == 'frame': return self.frame(data.get('mode', 'all'))
-        if action == 'capture': return self.freeze(foreground=True)
+        if action == 'capture':
+            self.semantic_highlight = self._semantic_box = None
+            return self.freeze(foreground=True)
         if action == 'preview': return self.preview(data)
         if action == 'apply': return self.apply(data, progress, cancel)
         if action == 'objects': return self.objects_action(data)

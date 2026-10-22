@@ -33,6 +33,7 @@ let correctionId = 0;
 let correctionMode = 'ellipse';
 let correctionPreview = null;
 let gifItems = [];
+let semanticSignature = null;
 let loadedModel = null;
 let groundingLoaded = false;
 let previewBusy = false, composingPrompt = false;
@@ -90,7 +91,7 @@ function controls() {
         button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
         button.disabled=!hasScene || !!capture || !!groundSession || backgroundBox;
     }
-    for (const id of ['background-color','background-r','background-g','background-b']) $(id).disabled = !hasScene || !!capture || !!groundSession || backgroundBox;
+    for (const id of ['background-color','background-r','background-g','background-b','background-flip']) $(id).disabled = !hasScene || !!capture || !!groundSession || backgroundBox;
     $('adversarial-background').disabled = !hasScene || !!groundSession || backgroundBox;
     $('save-ids').disabled = !hasScene;
     const hasObjects=hasScene && state.objects.length>0;
@@ -118,7 +119,11 @@ function controls() {
     for (const id of ['save-object','add-id','export-ply','export-mask']) $(id).disabled = !state?.selected;
     $('export-gif').disabled = !hasScene || !state?.selected;
     $('export-all-gif').disabled = !hasScene || !state.objects.length;
+    for (const id of ['semantic-build','semantic-query','semantic-search']) $(id).disabled = !hasObjects || !!capture || !!groundSession || backgroundBox;
+    $('semantic-search').disabled ||= !$('semantic-query').value.trim();
+    $('semantic-clear').disabled = !state?.semantic_match || !!capture || !!groundSession || backgroundBox;
     $('add-id').disabled ||= !!capture;
+    for(const id of ['complete-cube','complete-cylinder']) $(id).disabled=!state?.selected || !!capture || !!groundSession || backgroundBox;
     $('undo').disabled = !state?.canUndo; $('redo').disabled = !state?.canRedo;
     $('prompt-mode').checked = !!capture;
     $('text-prompt-group').hidden = false;
@@ -158,6 +163,11 @@ async function present(result) {
     if (result.camera) {
         correctionPreview = result.preview_id ? {preview_id:result.preview_id,preview_count:result.preview_count} : null;
         state = result;
+        const signature=JSON.stringify([result.scene,result.knowledge_path,result.objects,result.camera.up,result.ids_dirty]);
+        if(signature!==semanticSignature) {
+            semanticSignature=signature;
+            $('semantic-results').replaceChildren();$('semantic-status').textContent='';
+        }
         if(result.render_mode)renderMode=result.render_mode;
         if(result.background_color) setBackgroundColor(result.background_color);
         if(result.display) {
@@ -233,9 +243,9 @@ async function job(action, data = {}, interactive = false) {
     busy = true; previewBusy=interactive; controls(); $('busy-overlay').hidden = interactive;
     $('drone-live').hidden=true;
     if (action==='apply' && data.drone) { clearDroneViews(); $('drone-gallery-section').hidden=false; localized($('drone-gallery-status'), "textContent", () => t("正在生成各视角…")); }
-    $('cancel').hidden = !(action === 'apply' && data.drone) && action!=='gif';
-    localized($('cancel'), 'textContent', () => action==='gif' ? t("取消生成") : t("取消巡航"));
-    $('progress').max = action==='gif' ? 100 : 6;
+    $('cancel').hidden = !(action === 'apply' && data.drone) && !['gif','semantic'].includes(action);
+    localized($('cancel'), 'textContent', () => ['gif','semantic'].includes(action) ? t("取消生成") : t("取消巡航"));
+    $('progress').max = ['gif','semantic'].includes(action) ? 100 : 6;
     $('progress').value = 0;
     localized($('busy-message'), "textContent", () => action === 'pick' ? t("请在系统文件选择框中选择场景…") : action === 'preview' ? t("{0} 编码与分割…", selectedModel().toUpperCase()) : t("Python 后端处理中…"));
     try {
@@ -247,6 +257,7 @@ async function job(action, data = {}, interactive = false) {
             $('progress').value = result.done || 0;
             if (result.views) showDroneViews(result.views);
             if (result.status === 'done') {
+                if (action==='objects' || action==='ground') { $('semantic-results').replaceChildren();$('semantic-status').textContent=''; }
                 if (action==='apply' && data.drone) { showDroneViews(result.result.route); localized($('drone-gallery-status'), "textContent", () => t("巡航完成 · 点击缩略图查看渲染与分割对照")); }
                 if (!interactive) { showTiming(result.result.timing); status(() => t("完成")); }
                 return result.result;
@@ -570,6 +581,12 @@ $('text-prompt').oninput = event => { if (event.isComposing || composingPrompt) 
 $('text-prompt').addEventListener('compositionstart',()=> { composingPrompt=true; invalidateCandidates(); });
 $('text-prompt').addEventListener('compositionend',()=> { composingPrompt=false; schedulePreview(450); });
 for (const name of ['point','box']) bind(`${name}-tool`, () => { tool = name; $('point-tool').classList.toggle('active', tool==='point'); $('box-tool').classList.toggle('active', tool==='box'); });
+for(const shape of ['cube','cylinder']) bind(`complete-${shape}`,async()=>{
+    if(!state?.selected || capture || groundSession || backgroundBox) return;
+    const result=await job('objects',{action:'complete',shape});
+    release();mode='foreground';updateTabs();await present(result);
+    status(()=>t("补全新增 {0} 个高斯",result.completion.added.toLocaleString()));
+});
 bind('drone', async () => {
     const result = await job('apply', { capture, model:selectedModel(), level, padding: Number($('padding').value), operation: $('operation').value, adversarial_background:$('adversarial-background').checked, drone:true });
     release(); mode = 'foreground'; updateTabs(); await present(result);
@@ -720,18 +737,27 @@ const pixel = event => { const r=canvas.getBoundingClientRect();
     return [Math.max(0,Math.min(canvas.width-1,(event.clientX-r.x)/r.width*canvas.width)), Math.max(0,Math.min(canvas.height-1,(event.clientY-r.y)/r.height*canvas.height))]; };
 canvas.oncontextmenu = event => event.preventDefault();
 canvas.onpointerdown = event => {
-    if ((busy && !(previewBusy && capture)) || !state) return;
+    if ((busy && !(previewBusy && capture) && !navigationBusy) || !state) return;
     const start= pixel(event);
+    canvas.tabIndex=0;canvas.focus({preventScroll:true});
     if (!start || ((groundSession || backgroundBox) && event.button!==0)) return;
     canvas.setPointerCapture(event.pointerId);
     drag = { start, last:pixel(event), button:event.button, shift:event.shiftKey, camera:structuredClone(state.camera), frameId:state.frame_id };
+    drag.pan=!capture && !groundSession && !backgroundBox && (event.button===2 || event.shiftKey);
+    if(drag.pan) navigationKeys.clear();
     if (backgroundBox) { backgroundRect=[start,start];draw();return; }
     if (capture && tool==='box') { invalidateCandidates(); box=[drag.start,drag.start]; draw(); }
 };
-canvas.onpointermove = event => { if (!drag) return; drag.last=pixel(event); if (backgroundBox) {backgroundRect=[drag.start,drag.last];draw();} else if (capture && tool==='box') { box=[drag.start, drag.last]; draw(); } };
+canvas.onpointermove = event => { if (!drag) return; const previous=drag.last;drag.last=pixel(event);
+    if(drag.pan) { pendingPan[0]+=(drag.last[0]-previous[0])/canvas.width; pendingPan[1]+=(drag.last[1]-previous[1])/canvas.height;return; } if (backgroundBox) {backgroundRect=[drag.start,drag.last];draw();} else if (capture && tool==='box') { box=[drag.start, drag.last]; draw(); } };
 canvas.onpointerup = run(async event => {
     if (!drag) return;
     const d=drag; drag=null;
+    if(d.pan) {
+        const end=pixel(event);
+        if(end) {pendingPan[0]+=(end[0]-d.last[0])/canvas.width;pendingPan[1]+=(end[1]-d.last[1])/canvas.height;}
+        return;
+    }
     if (busy && !(previewBusy && capture)) return;
     const end=pixel(event); if (!end) return;
     const dx=end[0]-d.start[0], dy=end[1]-d.start[1];
@@ -756,25 +782,55 @@ canvas.onpointerup = run(async event => {
     }
     if (Math.abs(dx)+Math.abs(dy)<2) return;
     const v=d.camera;
-    if (d.shift || d.button===2) {
-        // Camera screen-plane translation based on the current yaw and up basis.
-        const up=v.up, length=Math.hypot(...up), n=up.map(x=>x/length);
-        let ref=Math.abs(n[2])<.9 ? [0,0,1] : [1,0,0];
-        const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-        let right=cross(n,ref); const norm=Math.hypot(...right); right=right.map(x=>x/norm);
-        const forward=cross(right,n), angle=v.yaw*Math.PI/180;
-        right=right.map((x,i)=>x*Math.cos(angle)+forward[i]*Math.sin(angle));
-        v.target=v.target.map((x,i)=>x+(-dx*right[i]+dy*n[i])*v.radius/canvas.width);
-    } else { v.yaw+=dx*.25; v.pitch=Math.max(-85,Math.min(85,v.pitch+dy*.25)); }
+    v.yaw+=dx*.25; v.pitch=Math.max(-85,Math.min(85,v.pitch+dy*.25));
     await present(await job('view',{ ...v,mode }));
 });
-canvas.onpointercancel = () => { drag=null; if(backgroundBox){backgroundRect=[];draw();} else if (capture && tool==='box') {box=[]; schedulePreview();} else autoPreview.resume(); };
+canvas.onpointercancel = () => { drag=null; pendingPan=[0,0]; if(backgroundBox){backgroundRect=[];draw();} else if (capture && tool==='box') {box=[]; schedulePreview();} else autoPreview.resume(); };
 canvas.onwheel = event => {
     event.preventDefault();
     if (busy || capture || groundSession || backgroundBox || !state) return;
     clearTimeout(wheelTimer); state.camera.radius=Math.max(.001,Math.min(1e7,state.camera.radius*Math.exp(event.deltaY*.001)));
     wheelTimer=setTimeout(run(async()=>{ if (!busy && !capture && !groundSession) await present(await job('view',{radius:state.camera.radius,mode})); }),150);
 };
+// Serialize interactive camera requests; retain pointer deltas while a frame renders.
+const navigationKeys=new Set();
+let pendingPan=[0,0], navigationBusy=false, navigationLast=performance.now();
+function navigationAllowed() {
+    const active=document.activeElement;
+    return !!state?.count && !capture && !groundSession && !backgroundBox && !document.hidden
+        && !document.querySelector('dialog[open]') && !active?.isContentEditable
+        && !active?.matches('textarea,select,input:not([type=checkbox])');
+}
+function stopNavigation() { navigationKeys.clear();pendingPan=[0,0];navigationLast=performance.now(); }
+window.addEventListener('keydown',event=>{
+    if(event.ctrlKey || event.altKey || event.metaKey) {stopNavigation();return;}
+    const key=event.key.toLowerCase();
+    if(!['w','a','s','d'].includes(key) || !navigationAllowed() || (busy && !navigationBusy)) return;
+    event.preventDefault();if(!navigationKeys.size) navigationLast=performance.now();navigationKeys.add(key);
+});
+window.addEventListener('keyup',event=>navigationKeys.delete(event.key.toLowerCase()));
+window.addEventListener('blur',stopNavigation);
+document.addEventListener('visibilitychange',()=>{if(document.hidden) stopNavigation();});
+setInterval(async()=>{
+    if(!navigationAllowed() || (busy && !navigationBusy)) {stopNavigation();return;}
+    if(busy || navigationBusy) return;
+    const now=performance.now();let data;
+    if(pendingPan.some(x=>x)) {
+        const pan=pendingPan.map(x=>Math.max(-1,Math.min(1,x)));
+        pendingPan=pendingPan.map((x,i)=>x-pan[i]);data={pan};
+    } else if(navigationKeys.size && !drag) {
+        const x=Number(navigationKeys.has('d'))-Number(navigationKeys.has('a'));
+        const y=Number(navigationKeys.has('w'))-Number(navigationKeys.has('s'));
+        const length=Math.hypot(x,y),step=.6*Math.min(.1,(now-navigationLast)/1000);
+        if(length) data={move:[x/length*step,y/length*step]};
+    }
+    navigationLast=now;
+    if(!data) return;
+    navigationBusy=true;
+    try {await present(await job('view',{...data,mode},true));}
+    catch(error) {stopNavigation();status(error.message,true);}
+    finally {navigationBusy=false;}
+},40);
 $('help').onclick = () => $('guide').showModal(); $('close-help').onclick=()=> $('guide').close();
 window.addEventListener('keydown', run(async event => {
     const active = document.activeElement;
@@ -822,6 +878,12 @@ function setBackgroundColor(rgb) {
     ['r','g','b'].forEach((c,i)=>{$(`background-${c}`).value=rgb[i];});
     $('background-color').value='#'+rgb.map(c=>Math.round(c*255).toString(16).padStart(2,'0')).join('');
 }
+bind('background-flip',async()=>{
+    if(!navigationAllowed() || busy) return;
+    const rgb=['r','g','b'].map(c=>Number($(`background-${c}`).value));
+    const color=rgb.reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0)<.5?1:0;
+    setBackgroundColor([color,color,color]);await present(await job('frame',{mode}));
+});
 $('background-color').onchange=run(async()=>{
     const hex=$('background-color').value;
     setBackgroundColor([1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255));
@@ -836,3 +898,28 @@ for(const channel of ['r','g','b']) $(`background-${channel}`).onchange=run(asyn
     setBackgroundColor(rgb);
     await present(await job('frame',{mode}));
 });
+
+$('semantic-query').oninput=controls;
+$('semantic-query').onkeydown=event=>{if(event.key==='Enter' && !event.isComposing){event.preventDefault();$('semantic-search').click();}};
+bind('semantic-build', async()=>{
+    const result=await job('semantic',{operation:'build',elevation_degrees:Number($('gif-elevation').value),size:Number($('gif-size').value)});
+    if(state) {
+        state.ids_dirty=false;
+        semanticSignature=JSON.stringify([state.scene,state.knowledge_path,state.objects,state.camera.up,state.ids_dirty]);
+    }
+    $('semantic-results').replaceChildren();
+    localized($('semantic-status'),'textContent',()=>t('已索引 {0} 个物体，更新 {1} 个；已保存到 {2}',result.indexed,result.updated,result.saved_path));
+    controls();
+});
+bind('semantic-search', async()=>{
+    $('semantic-results').replaceChildren();$('semantic-status').textContent='';
+    const result=await job('semantic',{operation:'search',text:$('semantic-query').value});
+    mode='all';updateTabs();$('show-bbox').checked=true;await present(result);
+    for(const item of result.results){
+        const row=document.createElement('p');row.textContent=`ID ${item.number} · ${item.name} · ${item.score.toFixed(3)}`;
+        $('semantic-results').append(row);
+    }
+    localized($('semantic-status'),'textContent',()=>result.stale_ids.length ? t('以下 ID 需要更新索引：{0}',result.stale_ids.join(', ')) : t('按四视图最高余弦相似度排序，分数不是概率'));
+});
+
+bind('semantic-clear',async()=>{mode='all';updateTabs();await present(await job('semantic',{operation:'clear'}));});

@@ -27,12 +27,12 @@ Run source and build commands from `SAGO_desktop/`. Checkpoints and virtual envi
 
 ## Debian package
 
-The current local build is `dist/sago-desktop_1.1.7_amd64.deb`, with checkpoint-free packaging and automatic, verified first-use SAM2 downloads. This version removes bundled model weights and retains object deletion, normalized RGB backgrounds and adaptive drone backgrounds.
+Desktop **1.1.11** adds four-view CLIP semantic object retrieval with automatic top-match coloring and an up-aligned 3D bbox. It also includes Cube/cylinder foreground completion, Esc to exit, black/white backgrounds, live right-drag panning and WASD roaming. Model weights remain external and are downloaded on first use.
 
-Download `sago-desktop_1.1.7_amd64.deb` and its checksum from the [Desktop release](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.7). Run the installation command from the download directory. A local build writes the installer under `dist/`.
+Download `sago-desktop_1.1.11_amd64.deb` and its checksum from the [Desktop release](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.11). Run the installation command from the download directory. A local build writes the installer under `dist/`.
 
 ```bash
-sudo dpkg -i ./sago-desktop_1.1.7_amd64.deb
+sudo dpkg -i ./sago-desktop_1.1.11_amd64.deb
 # If system libraries are missing, let apt resolve them:
 sudo apt-get -f install
 sago
@@ -41,7 +41,7 @@ sago path/to/gaussians.ply
 
 Installation provides a desktop-menu entry, the `sago` command, and a PLY MIME association. It installs resources under `/opt/sago-desktop` and writes application data only to user-owned XDG directories. It does not change your default PLY handler without your desktop's confirmation.
 
-**Version 1.1.7 packages the app, algorithm source and Qt (when built with `--qt-site`), without model weights. SAM2 downloads on first use. NVIDIA drivers and CUDA Python runtimes are not bundled.** The older published 1.1.2 installer includes weights. On a new machine, configure a compatible CUDA Python environment first:
+**Version 1.1.7 and later package the app, algorithm source and Qt (when built with `--qt-site`), without model weights. SAM2 downloads on first use. NVIDIA drivers and CUDA Python runtimes are not bundled.** The older published 1.1.2 installer includes weights. On a new machine, configure a compatible CUDA Python environment first:
 
 ```bash
 /opt/sago-desktop/scripts/setup-runtime.sh --python /path/to/cuda/python
@@ -67,17 +67,24 @@ The model downloads and loads lazily when first entering prompt mode (**M**). Th
 
 The installer includes SAM2 tracking code; its checkpoint is downloaded from Meta’s official SAM2 endpoint. Model terms remain those of the original owner; see `THIRD_PARTY_NOTICES.md` and `models/README.md`.
 
+## Foreground completion
+
+**Cube completion** uses the same upright bounding box as the 3D BBOX display (minimum horizontal area, independent side lengths). **Cylinder completion** fits the minimum enclosing circle of the horizontal foreground projection and uses the foreground's lowest/highest positions for its caps. Both align to the current up vector.
+
+All Gaussian centers inside the fitted volume join the current foreground, including occluded centers. Gaussian ellipse intersections are not used. Outside centers, Gaussian geometry and saved object IDs stay unchanged, and existing object visibility settings remain in effect. The result appears as Current foreground, supports Undo/Redo, and can be exported or assigned through the normal Add ID workflow. Empty foregrounds, prompts, ground calibration and correction disable completion.
+
 ## Desktop workflow
 
-The **Camera** panel provides normalized RGB background controls (0–1) and a color picker, defaulting to **(0, 0, 0)** (black); **(1, 1, 1)** is white. The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
+The **Camera** panel provides normalized RGB background controls (0–1) and a color picker, defaulting to **(0, 0, 0)** (black); **(1, 1, 1)** is white. The **Black / White** button switches directly to white for a dark background or black for a light background. The color applies to RGB, Splats, Points, Depth, prompt captures and image exports. Exit prompts or ground calibration before changing it. GIF exports keep their white background.
 
 **Delete** removes the selected object record and returns all of its Gaussians to ID **0** (background), preserving their geometry. It also removes them from the current foreground. Undo/Redo restores or reapplies the edit; use **Save IDs** / **Save segmentation** to persist it to `SAGO_knowledge.json`. Other object IDs keep their numbers.
 
 **Adversarial background** is enabled by default in the 3D segmentation panel. Before mask padding, SAGO samples the selected prompt mask’s one-pixel inner boundary in the original RGB capture. A mean brightness below 0.5 selects white; otherwise black. The same background is used for all six drone tracking inputs and preview renders, while the main viewport keeps its manual color. Turn the option off to use the manual background for drone views too.
 
 - Open a PLY or training scene directory with native file dialogs, drag a PLY into the viewport, choose a recent scene, or pass a path to `sago`.
-- Drag to orbit, Shift/right-drag to pan, and scroll to zoom. The viewport fills available space while preserving the rendered aspect ratio. Original scene cameras, FOV, resolution, target and up vector can be selected. Render size defaults to Auto, matching the viewport in physical screen pixels (512–2560 long edge, rounded up in steps of 64). Manual sizes include 512, 768, 1024, 1536, 1920 and 2560. Navigation uses up to 768 pixels and refreshes at the selected quality after 450 ms of inactivity. Prompt and ground capture use the selected quality with fixed pixel coordinates. Image display uses smooth scaling.
+- Drag to orbit, right-drag or Shift-drag to pan continuously, and scroll to zoom. Hold **W/S** to move forward/backward along the viewing direction and **A/D** to strafe. Eye and target translate together; orbit radius and viewing angles stay fixed. Speed scales with the current orbit radius, and diagonal movement is normalized. Releasing a key or leaving the window stops roaming. Text fields, dialogs, prompts, calibration and correction suspend roaming. The viewport fills available space while preserving the rendered aspect ratio. Original scene cameras, FOV, resolution, target and up vector can be selected. Render size defaults to Auto, matching the viewport in physical screen pixels (512–2560 long edge, rounded up in steps of 64). Manual sizes include 512, 768, 1024, 1536, 1920 and 2560. Navigation uses up to 768 pixels and refreshes at the selected quality after 450 ms of inactivity. Prompt and ground capture use the selected quality with fixed pixel coordinates. Image display uses smooth scaling.
 - Press **M** to enter segmentation prompt mode. Left-click foreground points, right-click background points, or draw a box. 2D segmentation updates automatically after each change. Choose the desired candidate and press **P** for six-view Virtual Drone refinement. Padding defaults to 2 pixels.
+- Press **Esc** to exit the application, including when a text field has focus. Running jobs use the existing cancellation/wait flow, and unsaved object IDs retain the Save/Discard/Cancel check. Dialogs keep their normal Esc-to-close behavior.
 - Press **C** to cancel the current round and return to camera navigation. Prompts and 2D candidates are cleared. Running 3D refinement stops after the current GPU step; a completed, uncommitted 3D result reverts to the selection before that refinement. Saved object IDs are preserved. Shortcuts do not activate while typing in input fields.
 - Use **Add ID** to save and hide the current object and begin the next round. Save selections, rename, select, hide, delete, merge and renumber objects. **Save IDs** persists the integer label vector (0 = background) to the scene's `SAGO_knowledge.json`.
 - Use three ground points to calibrate a plane, flip its up vector if needed, and apply. Ground knowledge is persisted by the backend and restored on load.
@@ -105,3 +112,15 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -v
 ```
 
 The tests exercise native viewport coordinate mapping, worker serialization/cancellation, model timing, automatic prompts, candidate selection, correction preview/commit, multi-ID operations, GIF settings, language switching, CLI and package contents. GPU smoke checks load a real PLY, render all four styles and generate a GIF using the independent backend. See `VALIDATION.md` for the actual checks run on the development machine.
+
+### Semantic object knowledge
+
+After assigning object IDs, open **Semantic knowledge** and select **Build / update semantic knowledge**. This indexes every object, including hidden IDs, and saves both the current ID segmentation and its features atomically in the scene's `SAGO_knowledge.json`.
+
+Each object is rendered alone against white at four azimuths 90° apart. The camera uses the GIF settings for resolution and orbit elevation (60° by default), the same object-fit distance calculation, scene FOV, and calibrated up vector. Four normalized 512-dimensional CLIP image embeddings are stored per object, along with the exact model revisions and rendering parameters. Rendered views are temporary in-memory images; model weights remain in the external Hugging Face cache (`HF_HOME`, if configured) and are downloaded only on first use. No checkpoint is added to the project or installer.
+
+Enter a description and select **Find object IDs**. The same `openai/clip-vit-base-patch32` model encodes the text; results list object IDs, names, and the highest cosine similarity across their four views. These scores indicate relative similarity, not confidence probabilities. English descriptions work best with this CLIP model; queries must fit its 77-token context.
+
+Indices are reused after reopening a scene. Object membership changes invalidate the affected entries, deleted IDs are omitted, and renaming or renumbering preserves valid embeddings. Search reports IDs that need rebuilding and excludes their old features. A changed up vector also requires rebuilding. Updating the index refreshes changed entries and reuses unchanged ones with identical render settings. Cancellation or failure leaves the previous knowledge file intact.
+
+After a successful semantic search, the viewport switches to **All**, highlights the top-ranked object in gold, and enables its up-aligned 3D bounding box. A hidden or unchecked match is temporarily revealed without changing its visibility setting, ID membership, or current segmentation selection. The highlight follows camera movement. Use **Clear search highlight** to restore normal rendering; starting segmentation, editing objects, or loading a scene also clears it.

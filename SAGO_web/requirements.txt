@@ -16,6 +16,9 @@ timm
 tqdm
 
 # Local GroundingDINO text localization for SAM2 (vendored source).
-transformers>=4.40,<5
+transformers>=4.40,<4.57
 addict
 yapf
+
+# CLIP semantic object retrieval (weights are cached externally on first use).
+safetensors>=0.4

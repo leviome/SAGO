@@ -11,3 +11,7 @@ sympy
 torch
 torchvision
 tqdm
+
+# CLIP image/text retrieval; model weights stay in the external Hugging Face cache.
+transformers>=4.40,<4.57
+safetensors>=0.4

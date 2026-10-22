@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from PySide6.QtCore import Qt, QTimer, QSignalBlocker, QSize, QUrl
+from PySide6.QtCore import Qt, QTimer, QSignalBlocker, QSize, QUrl, QEvent
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QMovie, QPixmap, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QSplitter, QScrollArea, QPushButton, QLabel, QLineEdit, QComboBox,
@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
         self.resize_timer=QTimer(self);self.resize_timer.setSingleShot(True);self.resize_timer.timeout.connect(self.resize_frame)
         self.quality_timer=QTimer(self);self.quality_timer.setSingleShot(True);self.quality_timer.timeout.connect(self.refine_frame)
         self.wheel_timer=QTimer(self);self.wheel_timer.setSingleShot(True);self.wheel_timer.timeout.connect(self.apply_zoom)
+        self.navigation_keys=set();self.pending_pan=[0.,0.];self.navigation_last=time.monotonic()
+        self.navigation_timer=QTimer(self);self.navigation_timer.timeout.connect(self.navigate);self.navigation_timer.start(40)
         self.elapsed_timer=QTimer(self);self.elapsed_timer.timeout.connect(self.elapsed);self.started=0
         self.setWindowTitle('SAGO Desktop');self.resize(1620,980)
         self.setWindowIcon(QIcon(str(ROOT/'packaging/sago.svg')))
@@ -111,7 +113,9 @@ class MainWindow(QMainWindow):
             control.setRange(0,1);control.setDecimals(4);control.setSingleStep(.01);control.setValue(0);control.setPrefix(channel+' ')
             control.editingFinished.connect(self.refresh)
         self.background_picker=self.button('Choose color…',self.choose_background)
-        self.field(camera,'Background color R / G / B (0–1)',self.row(*self.background_rgb,self.background_picker))
+        self.background_flip=self.button('Black / White',self.flip_background)
+        self.field(camera,'Background color R / G / B (0–1)',self.row(*self.background_rgb))
+        camera.addWidget(self.row(self.background_picker,self.background_flip))
         self.up=[self.spin(n,-1e8,1e8,5) for n in (0,-1,0)]
         self.target=[self.spin(0,-1e8,1e8,5) for _ in range(3)]
         self.field(camera,'Up X / Y / Z',self.row(*self.up));self.field(camera,'Target X / Y / Z',self.row(*self.target))
@@ -144,7 +148,7 @@ class MainWindow(QMainWindow):
         self.correct_discard=self.button('Discard selection',self.discard_correction)
         cl.addWidget(self.row(self.display,self.render_mode,self.correct_button,self.correct_confirm,self.correct_discard))
         self.canvas=Viewport();cl.addWidget(self.canvas,1)
-        self.canvas.gesture.connect(self.gesture);self.canvas.zoom.connect(self.zoom)
+        self.canvas.pan.connect(self.queue_pan);self.canvas.gesture.connect(self.gesture);self.canvas.zoom.connect(self.zoom)
         self.canvas.resized.connect(lambda:self.resize_timer.start(300));self.canvas.dropped.connect(self.load_scene)
         self.hint=QLabel();cl.addWidget(self.hint)
         self.undo=self.button('Undo',lambda:self.object_action('undo'));self.redo=self.button('Redo',lambda:self.object_action('redo'))
@@ -176,6 +180,9 @@ class MainWindow(QMainWindow):
         self.translated(self.adversarial_background,'Choose black or white from the unpadded mask boundary; disable to use the manual background color.','setToolTip')
         segment.addWidget(self.adversarial_background)
         self.segment_button=self.button('3D segmentation',self.segment);segment.addWidget(self.segment_button)
+        self.complete_cube=self.button('Cube completion',lambda:self.complete_foreground('cube'))
+        self.complete_cylinder=self.button('Cylinder completion',lambda:self.complete_foreground('cylinder'))
+        segment.addWidget(self.row(self.complete_cube,self.complete_cylinder))
         self.add_id=self.button('Add ID',self.add_object);segment.addWidget(self.add_id)
         visual=self.section(right,'3D visualization')
         self.bbox=self.check('3D bbox',self.redraw_overlays);self.route=self.check('V-drone route and frustums',self.redraw_overlays)
@@ -189,6 +196,19 @@ class MainWindow(QMainWindow):
         id_scroll=QScrollArea();id_scroll.setWidgetResizable(True);id_scroll.setWidget(self.id_list);id_scroll.setMinimumHeight(120);id_scroll.setMaximumHeight(230);visual.addWidget(id_scroll)
         self.gallery_button=self.button('V-drone views',self.show_gallery);visual.addWidget(self.gallery_button)
         timing=self.section(right,'Timing');self.timing=QLabel('—');self.timing.setWordWrap(True);timing.addWidget(self.timing)
+        semantic=self.section(right,'Semantic knowledge')
+        self.semantic_build=self.button('Build / update semantic knowledge',self.build_semantic)
+        semantic.addWidget(self.semantic_build)
+        note=self.label('All object IDs · Four views · GIF elevation and auto-fit distance · Also saves IDs');note.setWordWrap(True);semantic.addWidget(note)
+        self.semantic_query=QLineEdit();semantic.addWidget(self.semantic_query)
+        self.semantic_query.returnPressed.connect(self.search_semantic)
+        self.semantic_query.textChanged.connect(lambda _:self.update_controls())
+        self.semantic_query.setMaxLength(512)
+        self.semantic_search=self.button('Find object IDs',self.search_semantic);semantic.addWidget(self.semantic_search)
+        self.semantic_clear=self.button('Clear search highlight',self.clear_search_highlight);semantic.addWidget(self.semantic_clear)
+        semantic.addWidget(self.label('Describe an object (English recommended)'))
+        self.semantic_results=QLabel();self.semantic_results.setWordWrap(True);self.semantic_results.setTextFormat(Qt.PlainText);self.semantic_results.setTextInteractionFlags(Qt.TextSelectableByMouse);semantic.addWidget(self.semantic_results)
+        self.semantic_signature=None;self.semantic_report=None
         exports=self.section(right,'Export')
         for key,kind in (('Export object PLY','ply'),('Export 3D mask','mask'),('Export image','image'),('Export 2D mask','mask2d')):
             exports.addWidget(self.button(key,lambda k=kind:self.export(k)))
@@ -210,7 +230,7 @@ class MainWindow(QMainWindow):
                     widget.setSizePolicy(QSizePolicy.Ignored,widget.sizePolicy().verticalPolicy())
         self.splitter.setSizes([300,1000,300]);self.splitter.setStretchFactor(1,1)
         self.status=self.statusBar();self.stats=QLabel();self.status.addPermanentWidget(self.stats)
-        for key,seq,fn in (('Open PLY…','Ctrl+O',self.open_file),('Undo','Ctrl+Z',lambda:self.object_action('undo')),('Redo','Ctrl+Shift+Z',lambda:self.object_action('redo'))):
+        for key,seq,fn in (('Exit application (Esc)','Esc',self.close),('Open PLY…','Ctrl+O',self.open_file),('Undo','Ctrl+Z',lambda:self.object_action('undo')),('Redo','Ctrl+Shift+Z',lambda:self.object_action('redo'))):
             action=QAction(self);action.setShortcut(QKeySequence(seq));action.triggered.connect(fn);self.addAction(action)
         self.model_dialog=None
 
@@ -228,6 +248,7 @@ class MainWindow(QMainWindow):
         self.qt_translator=QTranslator(self)
         if self.tr.language=='zh' and self.qt_translator.load('qtbase_zh_CN',QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
             app.installTranslator(self.qt_translator)
+        self.show_semantic_report()
         self.language.setText('中文' if self.tr.language=='en' else 'English')
         self.objects.setHorizontalHeaderLabels(['ID',self.text('Name'),self.text('Hidden')])
         self.canvas.hint=self.text('Open a Gaussian PLY to begin');self.canvas.update();self.update_controls()
@@ -257,6 +278,7 @@ class MainWindow(QMainWindow):
         self.bridge.submit(action,data);self.update_controls();return True
 
     def completed(self,action,result):
+        if action in ('objects','ground'):self.clear_semantic_report()
         callback=self.callback;self.callback=None;self.elapsed_timer.stop()
         self.busy_label.setText(f'{time.monotonic()-self.started:.2f} s');self.progress_bar.setValue(100)
         if self.cancel_round_pending:
@@ -317,6 +339,9 @@ class MainWindow(QMainWindow):
         self.elapsed()
 
     def present(self,result):
+        signature=repr((result.get('knowledge_path'),result.get('objects'),result.get('camera',{}).get('up'),result.get('ids_dirty')))
+        if signature!=self.semantic_signature:
+            self.semantic_signature=signature;self.clear_semantic_report()
         self.state={**self.state,**result}
         if result.get('image'):self.canvas.set_image(result['image'])
         if 'visualization' in result:self.canvas.visualization=result['visualization']
@@ -339,6 +364,54 @@ class MainWindow(QMainWindow):
             self.known_objects={o['id'] for o in result.get('objects',[])}
         self.refresh_objects();self.update_controls();self.canvas.update()
 
+    def flip_background(self):
+        if self.bridge.busy or self.capture or self.ground or self.correction:return
+        color=1. if sum(c.value()*w for c,w in zip(self.background_rgb,(.2126,.7152,.0722)))<.5 else 0.
+        for control in self.background_rgb:control.setValue(color)
+        self.refresh()
+
+    def navigation_allowed(self):
+        active=QApplication.focusWidget()
+        return bool(self.state.get('count') and self.isActiveWindow() and not QApplication.activeModalWidget()
+            and not (QApplication.keyboardModifiers() & (Qt.ControlModifier|Qt.AltModifier|Qt.MetaModifier))
+            and not (self.capture or self.ground or self.correction or self.close_pending)
+            and not isinstance(active,(QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox)))
+
+    def queue_pan(self,delta):
+        if not self.navigation_allowed():return
+        self.pending_pan=[a+b for a,b in zip(self.pending_pan,delta)]
+
+    def navigate(self):
+        now=time.monotonic()
+        if not self.navigation_allowed() or self.bridge.busy and self.bridge.action!='view':
+            self.navigation_keys.clear();self.pending_pan=[0.,0.];self.navigation_last=now;return
+        if self.bridge.busy:return
+        data=None
+        if any(self.pending_pan):
+            pan=[max(-1.,min(1.,x)) for x in self.pending_pan]
+            self.pending_pan=[a-b for a,b in zip(self.pending_pan,pan)]
+            data={'pan':pan}
+        elif self.navigation_keys:
+            x=int(Qt.Key_D in self.navigation_keys)-int(Qt.Key_A in self.navigation_keys)
+            y=int(Qt.Key_W in self.navigation_keys)-int(Qt.Key_S in self.navigation_keys)
+            length=math.hypot(x,y)
+            if length:
+                step=.6*min(.1,now-self.navigation_last)
+                data={'move':[x/length*step,y/length*step]}
+        self.navigation_last=now
+        if data:self.call('view',dict(data,mode=self.mode,_interactive=True))
+
+    def keyReleaseEvent(self,event):
+        if event.key() in (Qt.Key_W,Qt.Key_A,Qt.Key_S,Qt.Key_D):
+            if not event.isAutoRepeat():self.navigation_keys.discard(event.key())
+            event.accept();return
+        super().keyReleaseEvent(event)
+
+    def changeEvent(self,event):
+        if event.type()==QEvent.ActivationChange and not self.isActiveWindow() and hasattr(self,'navigation_keys'):
+            self.navigation_keys.clear();self.pending_pan=[0.,0.]
+        super().changeEvent(event)
+
     def choose_background(self):
         color=QColorDialog.getColor(QColor.fromRgbF(*[c.value() for c in self.background_rgb]),self,self.text('Background color'))
         if color.isValid():
@@ -356,7 +429,7 @@ class MainWindow(QMainWindow):
         self.canvas.mode='correction' if self.correction else 'ground' if self.ground else 'prompt' if self.capture else 'camera'
         self.canvas.foreground=self.fg;self.canvas.background=self.bg;self.canvas.box=self.box;self.canvas.ground=self.ground
         self.adversarial_background.setEnabled(scene and not busy and not self.ground and not self.correction)
-        for widget in (*self.background_rgb,self.background_picker):widget.setEnabled(scene and not busy and not editing)
+        for widget in (*self.background_rgb,self.background_picker,self.background_flip):widget.setEnabled(scene and not busy and not editing)
         for widget in (self.display,self.render_mode):widget.setEnabled(scene and not busy and not editing)
         self.correct_button.setEnabled(scene and self.mode=='all' and not self.capture and not self.ground and not busy)
         self.correct_confirm.setVisible(self.correction);self.correct_discard.setVisible(self.correction)
@@ -366,14 +439,19 @@ class MainWindow(QMainWindow):
         self.point_tool.setEnabled(bool(self.capture));self.box_tool.setEnabled(bool(self.capture))
         self.segment_button.setEnabled(bool(self.capture and self.masks) and not busy and not self.preview_timer.isActive())
         self.add_id.setEnabled(bool(self.state.get('selected')) and not busy and not editing)
+        for button in (self.complete_cube,self.complete_cylinder):button.setEnabled(bool(self.state.get('selected')) and not busy and not editing)
         self.gif_current.setEnabled(bool(self.state.get('selected')) and not busy)
         self.gif_all.setEnabled(bool(self.state.get('objects')) and not busy)
+        semantic_ready=scene and bool(self.state.get('objects')) and not busy and not editing
+        self.semantic_build.setEnabled(semantic_ready);self.semantic_query.setEnabled(semantic_ready)
+        self.semantic_search.setEnabled(semantic_ready and bool(self.semantic_query.text().strip()))
+        self.semantic_clear.setEnabled(bool(self.state.get('semantic_match')) and not busy and not editing)
         self.undo.setEnabled(bool(self.state.get('canUndo')) and not busy and not editing)
         self.redo.setEnabled(bool(self.state.get('canRedo')) and not busy and not editing)
-        self.cancel_button.setVisible(busy and self.bridge.action in ('apply','gif'))
+        self.cancel_button.setVisible(busy and self.bridge.action in ('apply','gif','semantic'))
         self.progress_bar.setVisible(busy)
         self.gallery_button.setEnabled(bool(self.drone_views) and not busy)
-        self.hint.setText(self.text('Left: foreground · Right: background · Drag: box')+' · '+self.text('Cancel current round (C)') if self.capture else self.text('Drag to rotate · Shift/right drag to pan · Scroll to zoom'))
+        self.hint.setText(self.text('Left: foreground · Right: background · Drag: box')+' · '+self.text('Cancel current round (C)') if self.capture else self.text('Drag to rotate · Right/Shift drag to pan · WASD to move · Scroll to zoom'))
 
     def open_file(self):
         if self.bridge.busy:return
@@ -604,6 +682,13 @@ class MainWindow(QMainWindow):
             self.model_dialog=None
             if after:after()
         self.call('load_model',{'model':version},done)
+    def complete_foreground(self,shape):
+        if self.bridge.busy or self.capture or self.ground or self.correction or not self.state.get('selected'):return
+        def done(result):
+            self.release();self.mode='foreground';self.display.setCurrentIndex(self.display.findData('foreground'))
+            self.message(self.text('Completion added {0} Gaussians').format(result['completion']['added']))
+        self.call('objects',{'action':'complete','shape':shape},done)
+
     def segment(self):
         if not self.capture or not self.masks or self.bridge.busy:return
         data={'capture':self.capture,'model':'sam2','level':self.level,'padding':self.padding.value(),'operation':self.operation.currentData(),'adversarial_background':self.adversarial_background.isChecked(),'drone':True}
@@ -657,14 +742,7 @@ class MainWindow(QMainWindow):
         if self.bridge.busy or not self.state.get('camera') or abs(dx)+abs(dy)<2:return
         v=self.state['camera'];data={'mode':self.mode,'_interactive':True}
         if shift or button==2:
-            import numpy as np
-            up=np.asarray(v['up'],dtype=float);up/=np.linalg.norm(up)
-            ref=np.array([0.,0.,1.]) if abs(up[2])<.9 else np.array([1.,0.,0.])
-            right=np.cross(ref,up);right/=np.linalg.norm(right)
-            forward=np.cross(up,right);yaw=math.radians(v['yaw'])
-            right=math.cos(yaw)*right-math.sin(yaw)*forward
-            amount=v['radius']*2*math.tan(math.radians(v['fov'])/2)/self.canvas.image.height()
-            data['target']=(np.asarray(v['target'])+(-dx*right+dy*up)*amount).tolist()
+            data['pan']=[dx/self.canvas.image.width(),dy/self.canvas.image.height()]
         else:data.update(yaw=v['yaw']+dx/self.canvas.image.width()*180,pitch=max(-85,min(85,v['pitch']+dy/self.canvas.image.height()*120)))
         self.call('view',data)
     def zoom(self,delta):
@@ -691,6 +769,39 @@ class MainWindow(QMainWindow):
         def done(result):
             path=self.local_asset(result['download']);self.message(f"{self.text('Files saved to:')} {path}");self.save_asset(path)
         self.call('export',data,done)
+    def clear_semantic_report(self):
+        self.semantic_report=None;self.semantic_results.clear()
+
+    def show_semantic_report(self):
+        if self.semantic_report is None:return
+        kind,result=self.semantic_report
+        if kind=='build':
+            text=self.text('Indexed {0} objects; updated {1}. Saved to {2}').format(result['indexed'],result['updated'],result['saved_path'])
+        else:
+            rows=[f"ID {item['number']} · {item['name']} · {item['score']:.3f}" for item in result['results']]
+            note=self.text('Rebuild the index for IDs: {0}').format(', '.join(map(str,result['stale_ids']))) if result['stale_ids'] else self.text('Ranked by maximum four-view cosine similarity; scores are not probabilities')
+            text='\n'.join(rows+['',note])
+        self.semantic_results.setText(text)
+
+    def build_semantic(self):
+        def done(result):
+            self.state['ids_dirty']=False;self.ids_info.setText(result['saved_path'])
+            self.semantic_signature=repr((self.state.get('knowledge_path'),self.state.get('objects'),self.state.get('camera',{}).get('up'),False))
+            self.semantic_report=('build',result);self.show_semantic_report()
+        self.call('semantic',dict(operation='build',elevation_degrees=self.gif_elevation.value(),size=self.gif_size.currentData()),done)
+
+    def search_semantic(self):
+        if not self.semantic_search.isEnabled():return
+        self.clear_semantic_report()
+        def done(result):
+            self.mode='all';self.display.setCurrentIndex(self.display.findData('all'))
+            self.bbox.setChecked(True);self.redraw_overlays()
+            self.semantic_report=('search',result);self.show_semantic_report()
+        self.call('semantic',dict(operation='search',text=self.semantic_query.text()),done)
+
+    def clear_search_highlight(self):
+        self.call('semantic',dict(operation='clear'))
+
     def export_gif(self,source):
         def done(result):
             self.gif_items=result['items'];self.show_gifs()
@@ -746,26 +857,25 @@ class MainWindow(QMainWindow):
             write_config(self.settings)
     def help(self):
         QMessageBox.information(self,'SAGO Desktop',self.text('Native Linux Gaussian segmentation')+'\n\n'+
-            self.text('Drag to rotate · Shift/right drag to pan · Scroll to zoom')+'\n'+
+            self.text('Drag to rotate · Right/Shift drag to pan · WASD to move · Scroll to zoom')+'\n'+
             self.text('Enter segmentation prompts (M)')+'\n'+self.text('Left: foreground · Right: background · Drag: box')+'\n'+
-            self.text('3D segmentation')+' (P)\n'+self.text('Cancel current round (C)')+'\nCtrl+O · Ctrl+Z · Ctrl+Shift+Z\n\n'+
+            self.text('3D segmentation')+' (P)\n'+self.text('Cancel current round (C)')+'\n'+self.text('Exit application (Esc)')+'\nCtrl+O · Ctrl+Z · Ctrl+Shift+Z\n\n'+
             self.text('Files saved to:')+' '+str(self.output))
     def keyPressEvent(self,event):
         active=QApplication.focusWidget()
         if isinstance(active,(QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox)):return super().keyPressEvent(event)
         if event.modifiers() & (Qt.ControlModifier|Qt.AltModifier|Qt.MetaModifier):return super().keyPressEvent(event)
         if event.isAutoRepeat():return
-        if event.key()==Qt.Key_M and self.prompt_check.isEnabled():self.prompt_check.click();event.accept()
+        if event.key() in (Qt.Key_W,Qt.Key_A,Qt.Key_S,Qt.Key_D):
+            if self.navigation_allowed():
+                if not self.navigation_keys:self.navigation_last=time.monotonic()
+                self.navigation_keys.add(event.key())
+            event.accept()
+        elif event.key()==Qt.Key_M and self.prompt_check.isEnabled():self.prompt_check.click();event.accept()
         elif event.key()==Qt.Key_P and self.segment_button.isEnabled():self.segment();event.accept()
         elif event.key()==Qt.Key_C:self.cancel_round();event.accept()
         elif event.key()==Qt.Key_Escape:
-            if self.correction:self.discard_correction()
-            elif self.ground:self.ground_action('cancel')
-            elif self.capture:
-                self.release()
-                if not self.bridge.busy:self.call('release',{'mode':self.mode})
-            elif self.bridge.busy:self.bridge.cancel()
-            event.accept()
+            self.close();event.accept()
         else:super().keyPressEvent(event)
     def closeEvent(self,event):
         if not self.bridge.thread.isRunning():event.accept();return
@@ -780,4 +890,4 @@ class MainWindow(QMainWindow):
             if answer==QMessageBox.Cancel:return
             if answer==QMessageBox.Save:
                 self.object_action('save_ids',after=lambda:QTimer.singleShot(0,self.close));return
-        self.quality_timer.stop();self.preview_timer.stop();self.resize_timer.stop();self.wheel_timer.stop();self.bridge.close()
+        self.navigation_timer.stop();self.navigation_keys.clear();self.quality_timer.stop();self.preview_timer.stop();self.resize_timer.stop();self.wheel_timer.stop();self.bridge.close()
