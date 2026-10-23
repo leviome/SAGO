@@ -9,10 +9,10 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-from PySide6.QtCore import Qt, QPointF, QBuffer, QIODevice
+from PySide6.QtCore import Qt, QPointF, QBuffer, QIODevice, QTimer
 from PySide6.QtGui import QImage, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog, QCheckBox, QDialogButtonBox, QSpinBox, QLabel
 from desktop.canvas import Viewport, project_segment
 from desktop.window import MainWindow
 from desktop.bridge import EngineBridge
@@ -75,6 +75,10 @@ class FakeEngine:
             if op=='save_ids':self.state['ids_dirty']=False
             if op=='rename':self.state['objects'][0]['name']=data['name']
             return self.frame()
+        if action=='rag':
+            if data['operation']=='test':return dict(connected=True,model='test-api')
+            if data['operation']=='build':return dict(indexed=1,saved_path='/tmp/SAGO_spatial_test.json',knowledge_path='/tmp/SAGO_knowledge.json')
+            return dict(answer='The chair is beside the table [ID 1]. <b>plain text</b>',referenced_ids=[1],retrieved_ids=[1],model='test-api',seconds=.1)
         if action=='semantic':
             if data['operation']=='build':return dict(indexed=1,updated=1,saved_path='/tmp/SAGO_knowledge.json')
             if data['operation']=='clear':
@@ -106,6 +110,30 @@ class NativeTest(unittest.TestCase):
         self.window.close();spin_until(lambda:not self.window.bridge.thread.isRunning())
         self.window.deleteLater();APP.processEvents()
         self.settings_patch.stop();self.write_patch.stop();self.temp.cleanup()
+    def test_mesh_selection_settings_and_result_dialog(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        self.assertFalse(w.mesh_export.isEnabled())
+        self.engine.state['objects']=[dict(id='obj',number=1,name='Duck',hidden=True,count=20),dict(id='other',number=2,name='Other',hidden=False,count=30)]
+        w.present(self.engine.frame());w.update_controls();self.assertTrue(w.mesh_export.isEnabled())
+        def choose():
+            dialog=QApplication.activeModalWidget()
+            checks=dialog.findChildren(QCheckBox);self.assertEqual(len(checks),2)
+            checks[0].setChecked(True);checks[1].setChecked(False)
+            spins=dialog.findChildren(QSpinBox);spins[0].setValue(500);spins[1].setValue(8)
+            dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.Ok).click()
+        with patch.object(w,'call',return_value=True) as call:
+            QTimer.singleShot(50,choose);w.export_mesh()
+        action,data,done=call.call_args.args
+        self.assertEqual(action,'mesh');self.assertEqual(data['ids'],['obj']);self.assertEqual(data['steps'],500);self.assertEqual(data['views_per_orbit'],8);self.assertEqual(data['parallel_jobs'],2)
+        self.assertNotIn('ids',w.settings['mesh_export'])
+        path=Path(self.temp.name)/'duck.obj';path.write_text('v 0 0 0\n')
+        def close_report():
+            dialog=QApplication.activeModalWidget();self.assertIsInstance(dialog,QDialog)
+            self.assertTrue(any('100 vertices' in label.text() for label in dialog.findChildren(QLabel)))
+            dialog.reject()
+        QTimer.singleShot(50,close_report)
+        done(dict(items=[dict(filename='duck.obj',saved_path=str(path),vertices=100,faces=200)],generation_seconds=1.5,output_directory=self.temp.name))
+
     def test_semantic_build_search_and_edit_locks(self):
         w=self.window;spin_until(lambda:not w.bridge.busy)
         self.assertFalse(w.semantic_build.isEnabled())
@@ -129,6 +157,25 @@ class NativeTest(unittest.TestCase):
         self.prompt_mode();self.assertFalse(w.semantic_build.isEnabled());self.assertFalse(w.semantic_search.isEnabled())
         w.tr.language='zh'
         self.assertEqual(w.tr.backend_text('Indexed objects: 1/2'),'已索引物体：1/2')
+
+    def test_rag_api_settings_build_ask_and_plain_text(self):
+        w=self.window;spin_until(lambda:not w.bridge.busy)
+        self.assertFalse(w.rag_build.isEnabled());self.assertFalse(w.rag_ask.isEnabled())
+        w.rag_base.setText('https://example.invalid/v1');w.rag_model.setText('test-api');w.rag_key.setText('session-key')
+        w.test_rag();spin_until(lambda:not w.bridge.busy)
+        self.assertIn('API connected',w.rag_answer.text());self.assertEqual(w.rag_key.echoMode().name,'Password')
+        self.engine.state['objects']=[dict(id='obj',number=1,name='Chair',hidden=True,count=20)]
+        w.present(self.engine.frame());w.update_controls();self.assertTrue(w.rag_build.isEnabled())
+        w.rag_describe.setChecked(True);w.rag_build.click();spin_until(lambda:not w.bridge.busy)
+        self.assertEqual(self.engine.calls[-1][1]['api']['model'],'test-api');self.assertTrue(self.engine.calls[-1][1]['describe'])
+        self.assertIn('Spatial knowledge saved',w.rag_answer.text())
+        w.rag_question.setText('Where is the chair?');QTest.keyClick(w.rag_question,Qt.Key_Return);spin_until(lambda:not w.bridge.busy)
+        self.assertEqual(self.engine.calls[-1][1]['question'],'Where is the chair?')
+        self.assertIn('[ID 1]',w.rag_answer.text());self.assertIn('<b>plain text</b>',w.rag_answer.text())
+        self.assertEqual(w.rag_answer.textFormat(),Qt.PlainText)
+        w.toggle_language();self.assertIn('引用 ID',w.rag_answer.text());w.toggle_language()
+        self.prompt_mode();self.assertFalse(w.rag_build.isEnabled());self.assertFalse(w.rag_ask.isEnabled())
+        self.assertNotIn('session-key',str(w.settings))
 
     def prompt_mode(self):
         self.window.prompt_check.click()

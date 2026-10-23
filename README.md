@@ -59,12 +59,17 @@ Run application commands from the corresponding application directory. The two b
 - Visible-Gaussian correction with preview and confirmation.
 - RGB, Splats, Points, and Depth rendering, plus Virtual Drone trajectories and camera frustums.
 - Foreground PLY/mask exports and single-orbit GIFs for the current selection or all saved objects.
+- Selected-object OBJ mesh reconstruction through **Mesh exporting**, with parallel workers, progress and cancellation.
+- GaussianRAG spatial knowledge and API-backed scene questions; no-API Codex validation helpers.
 - Four-view CLIP semantic knowledge saved per scene; text search returns object IDs and highlights the top match with coloring and a 3D bbox.
 - Black/white background switching, right-drag panning and held-key WASD navigation.
 
 Desktop additionally provides automatic high-DPI rendering, **C** to cancel the current segmentation round, and **Esc** to exit. See each application's README for supported shortcuts and detailed behavior.
 
 ## Models and releases
+
+The local **v1.5.0** snapshot includes parallel mesh exporting in Web and Desktop, and the Linux installer is named `sago-desktop_1.5.0_amd64.deb`. NeuS2 is configured as a separate mesh-reconstruction runtime. This snapshot has not been published to GitHub.
+
 
 Model checkpoints, scenes, virtual environments, caches, generated outputs (apart from the curated gallery in `assets/`), and Debian packages are **not stored in Git**. Download model weights from the upstream projects as described in each application's model guide:
 

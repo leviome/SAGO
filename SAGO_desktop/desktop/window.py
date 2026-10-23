@@ -196,6 +196,22 @@ class MainWindow(QMainWindow):
         id_scroll=QScrollArea();id_scroll.setWidgetResizable(True);id_scroll.setWidget(self.id_list);id_scroll.setMinimumHeight(120);id_scroll.setMaximumHeight(230);visual.addWidget(id_scroll)
         self.gallery_button=self.button('V-drone views',self.show_gallery);visual.addWidget(self.gallery_button)
         timing=self.section(right,'Timing');self.timing=QLabel('—');self.timing.setWordWrap(True);timing.addWidget(self.timing)
+        rag=self.section(right,'GaussianRAG')
+        api=self.section(rag,'API settings')
+        self.rag_base=QLineEdit();self.rag_base.setPlaceholderText('https://provider.example/v1');self.field(api,'Base URL',self.rag_base)
+        self.rag_model=QLineEdit();self.field(api,'API model',self.rag_model)
+        self.rag_key=QLineEdit();self.rag_key.setEchoMode(QLineEdit.Password);self.field(api,'API key (this session only)',self.rag_key)
+        note=self.label('Requires Chat Completions and tool calls. Leave blank to use backend environment variables. Keys are not saved.');note.setWordWrap(True);api.addWidget(note)
+        self.rag_test=self.button('Test API connection',self.test_rag);api.addWidget(self.rag_test)
+        self.rag_describe=self.check('Generate object descriptions with a vision API');rag.addWidget(self.rag_describe)
+        note=self.label('Enabling this sends four-view images to the configured API; questions send object descriptions and spatial facts.');note.setWordWrap(True);rag.addWidget(note)
+        self.rag_build=self.button('Build / update spatial knowledge',self.build_rag);rag.addWidget(self.rag_build)
+        note=self.label('Uses all object IDs and also saves IDs. Distances are in scene units, not necessarily metres.');note.setWordWrap(True);rag.addWidget(note)
+        self.rag_question=QLineEdit();self.rag_question.setMaxLength(4000);self.field(rag,'Spatial question',self.rag_question)
+        self.rag_question.returnPressed.connect(self.ask_rag);self.rag_question.textChanged.connect(lambda _:self.update_controls())
+        self.rag_ask=self.button('Ask about the scene',self.ask_rag);rag.addWidget(self.rag_ask)
+        self.rag_answer=QLabel();self.rag_answer.setWordWrap(True);self.rag_answer.setTextFormat(Qt.PlainText);self.rag_answer.setTextInteractionFlags(Qt.TextSelectableByMouse);rag.addWidget(self.rag_answer)
+        self.rag_signature=None;self.rag_report=None
         semantic=self.section(right,'Semantic knowledge')
         self.semantic_build=self.button('Build / update semantic knowledge',self.build_semantic)
         semantic.addWidget(self.semantic_build)
@@ -212,6 +228,8 @@ class MainWindow(QMainWindow):
         exports=self.section(right,'Export')
         for key,kind in (('Export object PLY','ply'),('Export 3D mask','mask'),('Export image','image'),('Export 2D mask','mask2d')):
             exports.addWidget(self.button(key,lambda k=kind:self.export(k)))
+        self.mesh_export=self.button('Export object meshes',self.export_mesh)
+        exports.addWidget(self.mesh_export)
         self.gif_all=self.button('Export all object GIFs',lambda:self.export_gif('all'))
         self.gif_current=self.button('Export current GIF',lambda:self.export_gif('current'))
         exports.addWidget(self.gif_all);exports.addWidget(self.gif_current)
@@ -248,7 +266,7 @@ class MainWindow(QMainWindow):
         self.qt_translator=QTranslator(self)
         if self.tr.language=='zh' and self.qt_translator.load('qtbase_zh_CN',QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
             app.installTranslator(self.qt_translator)
-        self.show_semantic_report()
+        self.show_semantic_report();self.show_rag_report()
         self.language.setText('中文' if self.tr.language=='en' else 'English')
         self.objects.setHorizontalHeaderLabels(['ID',self.text('Name'),self.text('Hidden')])
         self.canvas.hint=self.text('Open a Gaussian PLY to begin');self.canvas.update();self.update_controls()
@@ -278,7 +296,7 @@ class MainWindow(QMainWindow):
         self.bridge.submit(action,data);self.update_controls();return True
 
     def completed(self,action,result):
-        if action in ('objects','ground'):self.clear_semantic_report()
+        if action in ('objects','ground'):self.clear_semantic_report();self.rag_report=None;self.rag_answer.clear()
         callback=self.callback;self.callback=None;self.elapsed_timer.stop()
         self.busy_label.setText(f'{time.monotonic()-self.started:.2f} s');self.progress_bar.setValue(100)
         if self.cancel_round_pending:
@@ -339,6 +357,9 @@ class MainWindow(QMainWindow):
         self.elapsed()
 
     def present(self,result):
+        rag_signature=repr((result.get('knowledge_path'),result.get('objects'),result.get('camera',{}).get('up'),result.get('ids_dirty')))
+        if rag_signature!=self.rag_signature:
+            self.rag_signature=rag_signature;self.rag_report=None;self.rag_answer.clear()
         signature=repr((result.get('knowledge_path'),result.get('objects'),result.get('camera',{}).get('up'),result.get('ids_dirty')))
         if signature!=self.semantic_signature:
             self.semantic_signature=signature;self.clear_semantic_report()
@@ -441,14 +462,17 @@ class MainWindow(QMainWindow):
         self.add_id.setEnabled(bool(self.state.get('selected')) and not busy and not editing)
         for button in (self.complete_cube,self.complete_cylinder):button.setEnabled(bool(self.state.get('selected')) and not busy and not editing)
         self.gif_current.setEnabled(bool(self.state.get('selected')) and not busy)
+        self.mesh_export.setEnabled(bool(self.state.get('objects')) and not busy)
         self.gif_all.setEnabled(bool(self.state.get('objects')) and not busy)
         semantic_ready=scene and bool(self.state.get('objects')) and not busy and not editing
+        self.rag_build.setEnabled(semantic_ready);self.rag_question.setEnabled(semantic_ready);self.rag_describe.setEnabled(semantic_ready)
+        self.rag_ask.setEnabled(semantic_ready and bool(self.rag_question.text().strip()))
         self.semantic_build.setEnabled(semantic_ready);self.semantic_query.setEnabled(semantic_ready)
         self.semantic_search.setEnabled(semantic_ready and bool(self.semantic_query.text().strip()))
         self.semantic_clear.setEnabled(bool(self.state.get('semantic_match')) and not busy and not editing)
         self.undo.setEnabled(bool(self.state.get('canUndo')) and not busy and not editing)
         self.redo.setEnabled(bool(self.state.get('canRedo')) and not busy and not editing)
-        self.cancel_button.setVisible(busy and self.bridge.action in ('apply','gif','semantic'))
+        self.cancel_button.setVisible(busy and self.bridge.action in ('apply','gif','mesh','semantic','rag'))
         self.progress_bar.setVisible(busy)
         self.gallery_button.setEnabled(bool(self.drone_views) and not busy)
         self.hint.setText(self.text('Left: foreground · Right: background · Drag: box')+' · '+self.text('Cancel current round (C)') if self.capture else self.text('Drag to rotate · Right/Shift drag to pan · WASD to move · Scroll to zoom'))
@@ -769,6 +793,37 @@ class MainWindow(QMainWindow):
         def done(result):
             path=self.local_asset(result['download']);self.message(f"{self.text('Files saved to:')} {path}");self.save_asset(path)
         self.call('export',data,done)
+    def rag_api(self):
+        return dict(base_url=self.rag_base.text().strip(),model=self.rag_model.text().strip(),key=self.rag_key.text())
+
+    def show_rag_report(self):
+        if not self.rag_report:return
+        operation,result=self.rag_report
+        if operation=='test':text=self.text('API connected: {0}').format(result['model'])
+        elif operation=='build':text=self.text('Spatial knowledge saved for {0} objects: {1}').format(result['indexed'],result['saved_path'])
+        else:
+            note=self.text('Model: {0} · Cited IDs: {1} · {2} s').format(result['model'],', '.join(map(str,result['referenced_ids'])) or '—',f"{result['seconds']:.2f}")
+            text=result['answer']+'\n\n'+note
+        self.rag_answer.setText(text)
+
+    def rag_done(self,operation,result):
+        self.rag_report=(operation,result);self.show_rag_report()
+
+    def test_rag(self):
+        self.call('rag',dict(operation='test',api=self.rag_api()),lambda r:self.rag_done('test',r))
+
+    def build_rag(self):
+        def done(result):
+            self.state['ids_dirty']=False;self.ids_info.setText(result['knowledge_path'])
+            self.rag_signature=repr((self.state.get('knowledge_path'),self.state.get('objects'),self.state.get('camera',{}).get('up'),False))
+            self.rag_done('build',result)
+        self.call('rag',dict(operation='build',describe=self.rag_describe.isChecked(),api=self.rag_api(),elevation_degrees=self.gif_elevation.value(),size=self.gif_size.currentData()),done)
+
+    def ask_rag(self):
+        if not self.rag_ask.isEnabled():return
+        self.rag_report=None;self.rag_answer.clear()
+        self.call('rag',dict(operation='ask',question=self.rag_question.text(),api=self.rag_api()),lambda r:self.rag_done('ask',r))
+
     def clear_semantic_report(self):
         self.semantic_report=None;self.semantic_results.clear()
 
@@ -891,3 +946,51 @@ class MainWindow(QMainWindow):
             if answer==QMessageBox.Save:
                 self.object_action('save_ids',after=lambda:QTimer.singleShot(0,self.close));return
         self.navigation_timer.stop();self.navigation_keys.clear();self.quality_timer.stop();self.preview_timer.stop();self.resize_timer.stop();self.wheel_timer.stop();self.bridge.close()
+
+    def export_mesh(self):
+        if self.bridge.busy or not self.state.get('objects'):return
+        dialog=QDialog(self);dialog.setWindowTitle(self.text('Export object meshes'));dialog.resize(540,760)
+        layout=QVBoxLayout(dialog)
+        note=self.label('Choose objects; export one OBJ per ID. Selected objects are reconstructed in parallel; this takes longer than segmentation.');note.setWordWrap(True);layout.addWidget(note)
+        scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setMinimumHeight(120);scroll.setMaximumHeight(220)
+        content=QWidget();choices=QVBoxLayout(content);checks=[]
+        for obj in self.state['objects']:
+            check=QCheckBox(f"ID {obj['number']} · {obj['name']}");check.setChecked(obj['id'] in self.foreground_ids)
+            choices.addWidget(check);checks.append((obj['id'],check))
+        scroll.setWidget(content);layout.addWidget(scroll)
+        row=QHBoxLayout();row.addWidget(self.button('Select all',lambda:[c.setChecked(True) for _,c in checks]));row.addWidget(self.button('Select none',lambda:[c.setChecked(False) for _,c in checks]));layout.addLayout(row)
+        saved=self.settings.get('mesh_export',{})
+        root=QLineEdit(saved.get('neus2_root',''));root.setPlaceholderText('Auto')
+        python=QLineEdit(saved.get('neus2_python',''));python.setPlaceholderText('Auto')
+        network=QLineEdit(saved.get('network','workspace_mask002.json'))
+        steps=self.spin(saved.get('steps',15000),100,100000);steps.setSingleStep(100)
+        resolution=self.combo([(str(n),n) for n in (128,256,512,1024)]);resolution.setCurrentIndex(max(0,resolution.findData(saved.get('resolution',512))))
+        size=self.combo([(str(n),n) for n in (256,512,768)]);size.setCurrentIndex(max(0,size.findData(saved.get('size',512))))
+        views=self.spin(saved.get('views_per_orbit',72),8,144)
+        parallel=self.spin(saved.get('parallel_jobs',2),1,4)
+        for key,widget in [('Mesh exporting directory',root),('Mesh exporting Python executable',python),('Mesh exporting network configuration',network),('Training steps',steps),('Mesh resolution',resolution),('View resolution',size),('Views per orbit',views),('Parallel exports',parallel)]:self.field(layout,key,widget)
+        note=self.label('Four orbits at 0°, 20°, 30°, 60°. Leave paths blank to use environment variables or automatic discovery.');note.setWordWrap(True);layout.addWidget(note)
+        layout.addWidget(self.label('Each parallel job uses its own GPU memory'))
+        buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel);layout.addWidget(buttons)
+        buttons.rejected.connect(dialog.reject)
+        def accept():
+            if not any(c.isChecked() for _,c in checks):
+                QMessageBox.information(dialog,self.text('Export object meshes'),self.text('Select at least one foreground object'));return
+            dialog.accept()
+        buttons.accepted.connect(accept)
+        if dialog.exec()!=QDialog.Accepted:return
+        data=dict(neus2_root=root.text().strip(),neus2_python=python.text().strip(),network=network.text().strip(),steps=steps.value(),resolution=resolution.currentData(),size=size.currentData(),views_per_orbit=views.value(),parallel_jobs=parallel.value())
+        self.settings['mesh_export']=data.copy();write_config(self.settings)
+        data['ids']=[key for key,c in checks if c.isChecked()]
+        def done(result):
+            report=QDialog(self);report.setWindowTitle(self.text('Mesh export complete'));report.resize(600,440);body=QVBoxLayout(report)
+            body.addWidget(QLabel(self.text('Exported {0} meshes · {1} s').format(len(result['items']),f"{result['generation_seconds']:.2f}")))
+            scroller=QScrollArea();scroller.setWidgetResizable(True);content=QWidget();rows=QVBoxLayout(content)
+            for item in result['items']:
+                path=Path(item['saved_path']);label=QLabel(f"{item['filename']}\n"+self.text('{0} vertices · {1} faces').format(item['vertices'],item['faces'])+f"\n{path}")
+                label.setWordWrap(True);label.setTextFormat(Qt.PlainText);label.setTextInteractionFlags(Qt.TextSelectableByMouse);rows.addWidget(label)
+                rows.addWidget(self.button('Save as…',lambda checked=False,p=path,n=item['filename']:self.save_asset(p,n)))
+            scroller.setWidget(content);body.addWidget(scroller)
+            body.addWidget(self.button('Open output folder',lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(result['output_directory']))))
+            close=QDialogButtonBox(QDialogButtonBox.Close);close.rejected.connect(report.reject);body.addWidget(close);report.exec()
+        self.call('mesh',data,done)

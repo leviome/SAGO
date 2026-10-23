@@ -1059,12 +1059,18 @@ class Engine:
                 self.background_color = color
                 self.background_frame = None
                 self.correction_pending = None
+        if action == 'rag':
+            from backend.gaussian_rag import rag_action
+            return rag_action(self, data, progress, cancel)
         if action == 'semantic':
             from backend.semantic import semantic_action
             result = semantic_action(self, data, progress, cancel)
             if data.get('operation') in ('search', 'clear'):
                 return dict(result, **self.frame('all'))
             return result
+        if action == 'mesh':
+            from backend.mesh_export import generate_mesh
+            return generate_mesh(self, data, progress, cancel)
         if action == 'gif':
             from backend.gif_export import generate_gif
             return generate_gif(self, data, progress, cancel)

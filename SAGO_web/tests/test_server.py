@@ -50,10 +50,28 @@ class ServerTest(unittest.TestCase):
             time.sleep(.01)
         self.fail('job timed out')
 
+    def test_nested_mesh_download_and_private_work_files(self):
+        folder=self.engine.output/('mesh-'+'a'*32)/'ID_3';folder.mkdir(parents=True)
+        (folder/'ID_3_Duck.obj').write_text('v 0 0 0\nf 1 1 1\n')
+        route='/downloads/'+folder.relative_to(self.engine.output).as_posix()
+        response=self.client.get(route+'/ID_3_Duck.obj',query_string={'filename':'Duck.obj'})
+        self.assertEqual(response.status_code,200);self.assertIn('Duck.obj',response.headers['Content-Disposition']);response.close()
+        for name in ('train.log','manifest.json','../secret.obj','raw.obj/../../secret.obj'):
+            self.assertEqual(self.client.get(route+'/'+name).status_code,404)
+        submitted=self.post('mesh',{'ids':['duck']})
+        self.assertEqual(submitted.status_code,202)
+        result=self.result(submitted.json['id'])
+        self.assertEqual(result['result']['action'],'mesh')
+
     def test_semantic_job_is_serialized_and_returns_results(self):
         response=self.post('semantic', {'operation':'search','text':'a chair'})
         self.assertEqual(response.status_code,202)
         self.assertEqual(self.result(response.json['id'])['result']['action'],'semantic')
+
+    def test_rag_action(self):
+        response=self.post('rag', {'operation':'test'})
+        self.assertEqual(response.status_code,202)
+        self.assertEqual(self.result(response.json['id'])['result']['action'],'rag')
 
     def test_gif_capability(self):
         self.assertEqual(self.client.get('/api/config').json['gif_export_version'], 3)

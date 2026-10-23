@@ -4,6 +4,7 @@ from pathlib import Path
 import secrets
 import hashlib
 import os
+import re
 import threading
 import traceback
 import uuid
@@ -16,7 +17,7 @@ from backend import file_picker
 from backend.engine import Engine, Cancelled
 
 ROOT = Path(__file__).resolve().parent.parent
-ACTIONS = {'ground', 'load_model', 'load', 'view', 'frame', 'capture', 'preview', 'apply', 'objects', 'export', 'gif', 'pick', 'semantic'}
+ACTIONS = {'ground', 'load_model', 'load', 'view', 'frame', 'capture', 'preview', 'apply', 'objects', 'export', 'gif', 'mesh', 'pick', 'semantic', 'rag'}
 
 
 def create_app(checkpoint, output=None, engine=None):
@@ -161,9 +162,15 @@ def create_app(checkpoint, output=None, engine=None):
             return jsonify(error='图像不存在'), 404
         return send_from_directory(engine.output/'drone-previews'/run_id, name)
 
-    @app.get('/downloads/<name>')
+    @app.get('/downloads/<path:name>')
     def download(name):
         # Only generated exports, never arbitrary server paths.
+        if re.fullmatch(r'mesh-[0-9a-f]{32}/ID_[1-9][0-9]*/[^/\\]+\.obj', name):
+            filename = request.args.get('filename', Path(name).name)
+            if (not filename.endswith('.obj') or len(filename) > 180
+                    or any(c in filename for c in '/\\') or any(ord(c) < 32 for c in filename)):
+                filename = Path(name).name
+            return send_from_directory(engine.output, name, as_attachment=True, download_name=filename)
         if len(name.split('.')[0]) != 32 or any(c not in '0123456789abcdef' for c in name.split('.')[0]):
             return jsonify(error='文件不存在'), 404
         if Path(name).suffix not in ('.ply', '.npy', '.png', '.gif'):

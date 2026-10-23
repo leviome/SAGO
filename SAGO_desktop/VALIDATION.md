@@ -61,3 +61,12 @@ The local 1.1.8 build also maps Esc to application exit, including text-field fo
 - Four-view indexing includes hidden object IDs and atomically stores both segmentation and normalized CLIP embeddings in scene-local knowledge. Tests cover cache reuse, rename/renumber preservation, changed-mask invalidation, deleted IDs, cancellation, failed writes, and preservation of unrelated knowledge fields.
 - Actual CUDA rendering and CLIP image/text inference were checked on an RTX 4090 using two synthetic colored Gaussian spheres. Text searches ranked the corresponding sphere first, produced visible gold pixels and an upright bbox, and cleared the highlight without changing saved visibility, IDs, or the current selection. This is an integration check, not a real-scene accuracy benchmark.
 - The v1.1.11 Debian archive is checked against the local backend, desktop and launcher sources, includes Qt, and excludes model checkpoints. The SHA-256 is supplied alongside the release installer.
+
+
+## 1.1.12: GaussianRAG API prototype (local)
+
+- Stores a readable, per-scene spatial JSON document and `gaussian_rag` in scene knowledge. All positive object IDs participate, including hidden objects. Geometry uses Gaussian-center centroids, up-aligned fitted boxes, common-frame bounds, signed ground-height ranges when calibrated, and nearest centroid relations.
+- API-compatible Chat Completions transport supports optional four-view visual descriptions and tool-based spatial QA with object-ID citations. API fields are session-only or inherited from environment variables; keys are not persisted to knowledge, exports, UI settings or browser storage.
+- Tests cover geometry, ground direction, scene isolation, atomic knowledge writes, description caching, stale index rejection, cancellation, transport authorization, sanitized errors, tool arguments and round limits, citations, bilingual UI and plain-text rendering of model output.
+- RTX 4090 integration used synthetic colored Gaussian objects and a real local HTTP fixture: four-view image requests, spatial tool invocation, computed facts and cited natural-language response completed end to end. This validates integration, not actual LLM reasoning quality. No cloud provider/model/key was configured during development; real-provider answer validation remains pending user configuration.
+- Local installer includes Qt and no model weights. No Git upload or Release publication is authorized for this follow-up change.

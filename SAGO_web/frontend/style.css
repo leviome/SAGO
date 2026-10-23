@@ -165,3 +165,5 @@ html[lang=en] .prompt-toggle{font-size:12px}
 .background-color-row{flex-wrap:wrap}.background-color-row>.triple{min-width:150px}#background-flip{flex:1 0 100%;white-space:nowrap;padding:4px 8px}
 
 .completion-actions>button{flex:1;padding:7px 4px;white-space:normal;font-size:11px}
+
+#mesh-dialog,#mesh-result-dialog{width:min(640px,92vw);max-height:88vh;overflow:auto}#mesh-objects{max-height:30vh;overflow:auto;margin:10px 0}.mesh-result{padding:10px 0;border-bottom:1px solid var(--muted);overflow-wrap:anywhere}

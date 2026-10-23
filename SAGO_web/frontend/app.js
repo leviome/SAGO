@@ -119,7 +119,10 @@ function controls() {
     for (const id of ['save-object','add-id','export-ply','export-mask']) $(id).disabled = !state?.selected;
     $('export-gif').disabled = !hasScene || !state?.selected;
     $('export-all-gif').disabled = !hasScene || !state.objects.length;
+    $('export-mesh').disabled = !hasScene || !state.objects.length;
     for (const id of ['semantic-build','semantic-query','semantic-search']) $(id).disabled = !hasObjects || !!capture || !!groundSession || backgroundBox;
+    for(const id of ['rag-build','rag-question','rag-describe']) $(id).disabled = !hasObjects || !!capture || !!groundSession || backgroundBox;
+    $('rag-ask').disabled = !hasObjects || !!capture || !!groundSession || backgroundBox || !$('rag-question').value.trim();
     $('semantic-search').disabled ||= !$('semantic-query').value.trim();
     $('semantic-clear').disabled = !state?.semantic_match || !!capture || !!groundSession || backgroundBox;
     $('add-id').disabled ||= !!capture;
@@ -167,6 +170,7 @@ async function present(result) {
         if(signature!==semanticSignature) {
             semanticSignature=signature;
             $('semantic-results').replaceChildren();$('semantic-status').textContent='';
+            $('rag-answer').textContent='';$('rag-status').textContent='';
         }
         if(result.render_mode)renderMode=result.render_mode;
         if(result.background_color) setBackgroundColor(result.background_color);
@@ -243,9 +247,9 @@ async function job(action, data = {}, interactive = false) {
     busy = true; previewBusy=interactive; controls(); $('busy-overlay').hidden = interactive;
     $('drone-live').hidden=true;
     if (action==='apply' && data.drone) { clearDroneViews(); $('drone-gallery-section').hidden=false; localized($('drone-gallery-status'), "textContent", () => t("正在生成各视角…")); }
-    $('cancel').hidden = !(action === 'apply' && data.drone) && !['gif','semantic'].includes(action);
-    localized($('cancel'), 'textContent', () => ['gif','semantic'].includes(action) ? t("取消生成") : t("取消巡航"));
-    $('progress').max = ['gif','semantic'].includes(action) ? 100 : 6;
+    $('cancel').hidden = !(action === 'apply' && data.drone) && !['gif','mesh','semantic','rag'].includes(action);
+    localized($('cancel'), 'textContent', () => ['gif','mesh','semantic','rag'].includes(action) ? t("取消生成") : t("取消巡航"));
+    $('progress').max = ['gif','mesh','semantic','rag'].includes(action) ? 100 : 6;
     $('progress').value = 0;
     localized($('busy-message'), "textContent", () => action === 'pick' ? t("请在系统文件选择框中选择场景…") : action === 'preview' ? t("{0} 编码与分割…", selectedModel().toUpperCase()) : t("Python 后端处理中…"));
     try {
@@ -923,3 +927,57 @@ bind('semantic-search', async()=>{
 });
 
 bind('semantic-clear',async()=>{mode='all';updateTabs();await present(await job('semantic',{operation:'clear'}));});
+
+function ragApi(){return {base_url:$('rag-base').value.trim(),model:$('rag-model').value.trim(),key:$('rag-key').value};}
+$('rag-question').oninput=controls;
+$('rag-question').onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();$('rag-ask').click();}};
+bind('rag-test',async()=>{
+    const result=await job('rag',{operation:'test',api:ragApi()});
+    localized($('rag-status'),'textContent',()=>t('API 连接成功：{0}',result.model));
+});
+bind('rag-build',async()=>{
+    const result=await job('rag',{operation:'build',describe:$('rag-describe').checked,api:ragApi(),elevation_degrees:Number($('gif-elevation').value),size:Number($('gif-size').value)});
+    if(state){state.ids_dirty=false;semanticSignature=JSON.stringify([state.scene,state.knowledge_path,state.objects,state.camera.up,state.ids_dirty]);}
+    $('rag-answer').textContent='';
+    localized($('rag-status'),'textContent',()=>t('已保存 {0} 个物体的空间知识：{1}',result.indexed,result.saved_path));controls();
+});
+bind('rag-ask',async()=>{
+    $('rag-answer').textContent='';$('rag-status').textContent='';
+    const result=await job('rag',{operation:'ask',question:$('rag-question').value,api:ragApi()});
+    $('rag-answer').textContent=result.answer;
+    localized($('rag-status'),'textContent',()=>t('模型：{0} · 引用 ID：{1} · 用时 {2} 秒',result.model,result.referenced_ids.join(', ')||'—',result.seconds.toFixed(2)));
+});
+
+// Mesh object selection is independent of visibility; hidden saved IDs can be exported.
+bind('export-mesh', () => {
+    $('mesh-objects').replaceChildren(...state.objects.map(obj => {
+        const label=document.createElement('label');label.className='prompt-toggle';
+        const check=document.createElement('input');check.type='checkbox';check.value=obj.id;check.checked=foregroundIds.has(obj.id);
+        const text=document.createElement('span');text.textContent=`ID ${obj.number} · ${obj.name}`;
+        label.append(check,text);return label;
+    }));
+    $('mesh-dialog').showModal();
+});
+bind('mesh-all',()=>document.querySelectorAll('#mesh-objects input').forEach(c=>c.checked=true));
+bind('mesh-none',()=>document.querySelectorAll('#mesh-objects input').forEach(c=>c.checked=false));
+bind('mesh-close',()=>$('mesh-dialog').close());
+bind('mesh-result-close',()=>$('mesh-result-dialog').close());
+bind('mesh-start',async()=>{
+    const ids=[...document.querySelectorAll('#mesh-objects input:checked')].map(c=>c.value);
+    if(!ids.length)throw new Error(t('请选择至少一个前景物体'));
+    const steps=Number($('mesh-steps').value),views=Number($('mesh-views').value),parallel=Number($('mesh-parallel').value);
+    if(!Number.isInteger(steps)||steps<100||steps>100000||!Number.isInteger(views)||views<8||views>144||!Number.isInteger(parallel)||parallel<1||parallel>4)throw new Error(t('无效的 Mesh 设置'));
+    const data={ids,neus2_root:$('mesh-root').value.trim(),neus2_python:$('mesh-python').value.trim(),network:$('mesh-network').value.trim(),steps,
+        resolution:Number($('mesh-resolution').value),size:Number($('mesh-size').value),views_per_orbit:views,parallel_jobs:parallel};
+    $('mesh-dialog').close();
+    const result=await job('mesh',data);
+    localized($('mesh-result-info'),'textContent',()=>t('已导出 {0} 个 Mesh · 用时 {1} 秒',result.items.length,result.generation_seconds.toFixed(2)));
+    $('mesh-results').replaceChildren(...result.items.map(item=>{
+        const entry=document.createElement('div');entry.className='mesh-result';
+        const link=document.createElement('a');link.href=item.download;link.download=item.filename;link.textContent=item.filename;
+        const detail=document.createElement('p');localized(detail,'textContent',()=>t('{0} 顶点 · {1} 面',item.vertices,item.faces));
+        const path=document.createElement('p');path.className='subtle';path.textContent=item.saved_path;
+        entry.append(link,detail,path);return entry;
+    }));
+    $('mesh-result-dialog').showModal();
+});

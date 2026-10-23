@@ -27,6 +27,8 @@ Run source and build commands from `SAGO_desktop/`. Checkpoints and virtual envi
 
 ## Debian package
 
+The local v1.5.0 build adds parallel selected-object mesh export and labels the UI as **Mesh exporting**, with configurable parallel jobs, reconstruction settings, progress, cancellation, and native save dialogs. It also includes the GaussianRAG API prototype from v1.1.12. NeuS2 remains a separate runtime dependency and is not bundled. It awaits user validation and is not published. The latest published installer remains v1.1.11.
+
 Desktop **1.1.11** adds four-view CLIP semantic object retrieval with automatic top-match coloring and an up-aligned 3D bbox. It also includes Cube/cylinder foreground completion, Esc to exit, black/white backgrounds, live right-drag panning and WASD roaming. Model weights remain external and are downloaded on first use.
 
 Download `sago-desktop_1.1.11_amd64.deb` and its checksum from the [Desktop release](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.11). Run the installation command from the download directory. A local build writes the installer under `dist/`.
@@ -124,3 +126,60 @@ Enter a description and select **Find object IDs**. The same `openai/clip-vit-ba
 Indices are reused after reopening a scene. Object membership changes invalidate the affected entries, deleted IDs are omitted, and renaming or renumbering preserves valid embeddings. Search reports IDs that need rebuilding and excludes their old features. A changed up vector also requires rebuilding. Updating the index refreshes changed entries and reuses unchanged ones with identical render settings. Cancellation or failure leaves the previous knowledge file intact.
 
 After a successful semantic search, the viewport switches to **All**, highlights the top-ranked object in gold, and enables its up-aligned 3D bounding box. A hidden or unchecked match is temporarily revealed without changing its visibility setting, ID membership, or current segmentation selection. The highlight follows camera movement. Use **Clear search highlight** to restore normal rendering; starting segmentation, editing objects, or loading a scene also clears it.
+
+### GaussianRAG (API prototype)
+
+Open **GaussianRAG** to build spatial knowledge and ask natural-language questions about saved object IDs. This prototype uses a configurable **Chat Completions-compatible API** with function/tool calling. It does not load a local LLM. Provider credentials and a model name are required for questions; no provider or model is silently selected. A vision-capable model is additionally required for optional image descriptions.
+
+In **API settings**, enter the provider's Base URL (ending in `/v1` for providers that use that prefix), model name, and key, then select **Test API connection**. The application appends `/chat/completions`. These fields are session-only; keys are not stored in browser storage, Desktop preferences, or scene knowledge. Alternatively, configure the backend process:
+
+```bash
+export SAGO_RAG_BASE_URL='https://your-provider.example/v1'
+export SAGO_RAG_MODEL='your-tool-capable-model'
+# Set SAGO_RAG_API_KEY securely in your shell/session before starting the app.
+```
+
+`OPENAI_BASE_URL` and `OPENAI_API_KEY` are accepted as fallback environment variables. Environment variables must be available to the running backend/Desktop process; this feature does not automatically read `.env` files. The API connection test checks basic text access; asking spatial questions also requires tool-call support.
+
+1. Name/assign object IDs and calibrate the ground if available. Hidden objects are included.
+2. Select **Build / update spatial knowledge**. This works offline using existing object names and geometry, and also saves current IDs. To enrich names with semantic labels, colors and descriptions, enable **Generate object descriptions with a vision API**. This sends four isolated object images per changed object to the configured API, using the GIF elevation, resolution and auto-fit distance. Unchanged compatible descriptions are reused.
+3. Ask a question such as “Which object is closest to ID 2?”, “What is above the table?”, or “How many chairs are in the catalog?” The model sees the object catalog and can call a local spatial tool to obtain requested geometry and all other objects ordered by centroid distance. Answers cite `[ID N]`; the UI also lists cited IDs and time spent. Each question starts a fresh context.
+
+Knowledge is stored in the current scene's `SAGO_knowledge.json` under `gaussian_rag` and exported to a readable `SAGO_spatial_<scene-key-hash>.json` beside it. The document records names, optional API descriptions and their model provenance, Gaussian counts, centroids, up-aligned boxes, common-frame bounds, signed ground-height ranges (when calibrated), and the six nearest saved objects' spatial relationships. Arbitrary requested relationships are computed from the same document during questioning. CLIP embeddings are not interpreted as textual class labels. The catalog covers positive object IDs only; it does not describe background or unsegmented objects.
+
+Distances are **scene units**, not guaranteed metres. Nearest-object ranking uses centroid distance. Box-gap values are lower bounds from common-frame bounds, and box overlap/containment does not prove physical contact, support, or containment of real surfaces. Left/right/front/back require an explicit reference frame. The model is instructed to state uncertainty, but answers and visual descriptions still require review. Updating IDs, names, scene identity, up direction or ground calibration invalidates the saved spatial document until rebuilt; visibility changes alone do not. API failures or cancellation before persistence preserve existing knowledge. Network requests time out after 60 seconds; cancellation is checked between requests and render steps.
+
+Enabling visual descriptions sends images to your chosen endpoint. Asking questions sends the catalog, question and retrieved spatial facts. No raw Gaussian arrays or CLIP vectors are sent. Provider data handling and API charges follow the configured provider's terms. A real provider/model must be configured to validate answer quality; deterministic API fixtures verify transport and integration only.
+
+### GaussianRAG validation with Codex (no API)
+
+To test grounded reasoning directly in a Codex conversation, export an existing saved scene using the project's Python environment:
+
+```bash
+python scripts/rag-local.py export --scene /path/to/scene.ply --output outputs/rag-validation \
+  --question "Which saved object is closest to ID 1?"
+python scripts/rag-local.py facts --document outputs/rag-validation/spatial.json --ids 1
+```
+
+Ask Codex to read the exported `request.json` and `spatial.json`, query local facts, and answer with object IDs. A scene folder is also accepted when its knowledge file identifies exactly one saved segmented PLY. The exporter validates Gaussian ordering, includes hidden objects, and leaves the original PLY and knowledge unchanged. It uses CPU geometry without SAM, CLIP, rendering, or network requests. Distances retain scene units; physical support and viewer-relative directions require further evidence.
+
+Codex supplies the natural-language reasoning in the conversation. This workflow does not connect the application's question box to Codex; automatic in-app answers still use the configured API. Optional rendered images can be reviewed separately and must be identified as visual observations rather than measured geometry.
+
+### Export foreground objects as meshes
+
+In **Export**, choose **Export object meshes**, select saved foreground IDs, and start reconstruction. Each selected ID produces a separate **OBJ triangle mesh with vertex colors**, restored to the original scene coordinates. Hidden IDs can also be exported. This does not change segmentation IDs or scene knowledge.
+
+The pipeline follows SAGO's `mega_use()` workflow: render four orbits at 0°, 20°, 30° and 60°, export COLMAP cameras and Gaussian centers, prepare masked RGBA images, optimize NeuS2, extract a marching-cubes surface, and remove unused vertices. Masks come from accumulated opacity of the selected object's splats, thresholded at 0.5, so exporting saved IDs does not require an earlier SAM tracking session. Only the selected object's Gaussians are rendered. Views of missing surfaces cannot recover real unseen geometry reliably.
+
+Mesh extraction requires a separate, working **CUDA NeuS2 installation and matching Python environment**. NeuS2 and its initialization weights are not bundled or downloaded by SAGO. Set the **Mesh exporting directory**, **Mesh exporting Python executable**, and **network configuration** in the mesh dialog, or configure:
+
+```bash
+export SAGO_MESH_ROOT=/path/to/NeuS2
+export SAGO_MESH_PYTHON=/path/to/neus2/environment/bin/python
+```
+
+The NeuS2 directory must contain its compiled `pyngp` extension under `build*`, `utils/mlp_weights*.txt`, and the selected network configuration (default `configs/nerf/workspace_mask002.json`). Install and compile NeuS2 according to its upstream instructions before exporting. If paths are blank, SAGO checks these environment variables, then `~/NeuS2` and common local NeuS2 virtual/Conda environments. It checks the extension before rendering. Custom builds must provide the same `pyngp` training/extraction API and network schema as the original SAGO NeuS2 workflow.
+
+Defaults are **512 × 512 images, 72 views per orbit (288 total), 15,000 training steps, and a 512³ extraction grid**. These settings are independent of GIF settings and require substantially more time and GPU memory than segmentation; lower view counts, training steps or grid resolution can be used for a quick test. Multiple selected objects are reconstructed in parallel by independent workers (default **2**, configurable **1–4** under **Parallel exports**). More concurrent jobs use more GPU memory; rendering remains on the main engine thread and overlaps reconstruction. Results remain ordered by object ID. Progress aggregates all objects; **Cancel** terminates every active worker, and a failed worker cancels the rest of the batch. The `SAGO_NEUS2_ROOT` and `SAGO_NEUS2_PYTHON` environment variables remain supported as compatibility aliases.
+
+Meshes are saved under the application's output directory as `mesh-<run-id>/ID_<number>/ID_<number>_<name>.obj`. Web shows download links and saved paths; Desktop offers **Save as…** and **Open output folder**. The run directory also contains rendered inputs, camera data, normalization metadata, training logs and a result manifest. Failed/cancelled runs keep diagnostic files but remove final OBJ exports from that batch; their temporary raw mesh files are not offered as completed exports. No NeuS2 training checkpoints are bundled into the application.
