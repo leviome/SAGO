@@ -33,6 +33,7 @@ let correctionId = 0;
 let correctionMode = 'ellipse';
 let correctionPreview = null;
 let gifItems = [];
+let exportAssets = false;
 let semanticSignature = null;
 let loadedModel = null;
 let groundingLoaded = false;
@@ -119,7 +120,7 @@ function controls() {
     for (const id of ['save-object','add-id','export-ply','export-mask']) $(id).disabled = !state?.selected;
     $('export-gif').disabled = !hasScene || !state?.selected;
     $('export-all-gif').disabled = !hasScene || !state.objects.length;
-    $('export-mesh').disabled = !hasScene || !state.objects.length;
+    $('export-mesh').disabled = $('export-assets').disabled = !hasScene || !state.objects.length;
     for (const id of ['semantic-build','semantic-query','semantic-search']) $(id).disabled = !hasObjects || !!capture || !!groundSession || backgroundBox;
     for(const id of ['rag-build','rag-question','rag-describe']) $(id).disabled = !hasObjects || !!capture || !!groundSession || backgroundBox;
     $('rag-ask').disabled = !hasObjects || !!capture || !!groundSession || backgroundBox || !$('rag-question').value.trim();
@@ -949,7 +950,11 @@ bind('rag-ask',async()=>{
 });
 
 // Mesh object selection is independent of visibility; hidden saved IDs can be exported.
-bind('export-mesh', () => {
+function openMeshExport(includeAssets=false) {
+    exportAssets=includeAssets;
+    localized($('mesh-title'),'textContent',()=>exportAssets?t('导出资产'):t('导出物体 Mesh'));
+    localized($('mesh-note'),'textContent',()=>exportAssets?t('每个物体保存高斯 PLY、点云 PLY 和 Mesh 到同一个文件夹，并提供 ZIP 下载。'):t('选择物体，每个 ID 单独导出 OBJ；将并行重建所选物体，耗时长于分割。'));
+    localized($('mesh-start'),'textContent',()=>exportAssets?t('开始导出资产'):t('开始导出 Mesh'));
     $('mesh-objects').replaceChildren(...state.objects.map(obj => {
         const label=document.createElement('label');label.className='prompt-toggle';
         const check=document.createElement('input');check.type='checkbox';check.value=obj.id;check.checked=foregroundIds.has(obj.id);
@@ -957,7 +962,9 @@ bind('export-mesh', () => {
         label.append(check,text);return label;
     }));
     $('mesh-dialog').showModal();
-});
+}
+bind('export-mesh',()=>openMeshExport());
+bind('export-assets',()=>openMeshExport(true));
 bind('mesh-all',()=>document.querySelectorAll('#mesh-objects input').forEach(c=>c.checked=true));
 bind('mesh-none',()=>document.querySelectorAll('#mesh-objects input').forEach(c=>c.checked=false));
 bind('mesh-close',()=>$('mesh-dialog').close());
@@ -968,16 +975,25 @@ bind('mesh-start',async()=>{
     const steps=Number($('mesh-steps').value),views=Number($('mesh-views').value),parallel=Number($('mesh-parallel').value);
     if(!Number.isInteger(steps)||steps<100||steps>100000||!Number.isInteger(views)||views<8||views>144||!Number.isInteger(parallel)||parallel<1||parallel>4)throw new Error(t('无效的 Mesh 设置'));
     const data={ids,neus2_root:$('mesh-root').value.trim(),neus2_python:$('mesh-python').value.trim(),network:$('mesh-network').value.trim(),steps,
-        resolution:Number($('mesh-resolution').value),size:Number($('mesh-size').value),views_per_orbit:views,parallel_jobs:parallel};
+        resolution:Number($('mesh-resolution').value),size:Number($('mesh-size').value),views_per_orbit:views,parallel_jobs:parallel,include_assets:exportAssets};
     $('mesh-dialog').close();
     const result=await job('mesh',data);
-    localized($('mesh-result-info'),'textContent',()=>t('已导出 {0} 个 Mesh · 用时 {1} 秒',result.items.length,result.generation_seconds.toFixed(2)));
+    const assets=result.format==='assets';
+    localized($('mesh-result-title'),'textContent',()=>assets?t('资产导出完成'):t('Mesh 导出完成'));
+    localized($('mesh-result-info'),'textContent',()=>t(assets?'已导出 {0} 个物体资产 · 用时 {1} 秒':'已导出 {0} 个 Mesh · 用时 {1} 秒',result.items.length,result.generation_seconds.toFixed(2)));
+    $('assets-download').hidden=!assets;
+    if(assets){$('assets-download').href=result.download;$('assets-download').download=result.filename;}
     $('mesh-results').replaceChildren(...result.items.map(item=>{
         const entry=document.createElement('div');entry.className='mesh-result';
         const link=document.createElement('a');link.href=item.download;link.download=item.filename;link.textContent=item.filename;
         const detail=document.createElement('p');localized(detail,'textContent',()=>t('{0} 顶点 · {1} 面',item.vertices,item.faces));
         const path=document.createElement('p');path.className='subtle';path.textContent=item.saved_path;
-        entry.append(link,detail,path);return entry;
+        entry.append(detail,path);
+        if(assets){
+            path.textContent=item.directory;
+            for(const file of item.files){const row=document.createElement('p'),a=document.createElement('a');a.href=file.download;a.download=file.filename;a.textContent=file.filename;row.append(a);entry.append(row);}
+        }else entry.prepend(link);
+        return entry;
     }));
     $('mesh-result-dialog').showModal();
 });

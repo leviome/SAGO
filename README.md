@@ -59,6 +59,7 @@ Run application commands from the corresponding application directory. The two b
 - Visible-Gaussian correction with preview and confirmation.
 - RGB, Splats, Points, and Depth rendering, plus Virtual Drone trajectories and camera frustums.
 - Foreground PLY/mask exports and single-orbit GIFs for the current selection or all saved objects.
+- Per-object Gaussian PLY, colored point cloud and mesh asset bundles, with ZIP download.
 - Selected-object OBJ mesh reconstruction through **Mesh exporting**, with parallel workers, progress and cancellation.
 - GaussianRAG spatial knowledge and API-backed scene questions; no-API Codex validation helpers.
 - Four-view CLIP semantic knowledge saved per scene; text search returns object IDs and highlights the top match with coloring and a 3D bbox.
@@ -68,7 +69,7 @@ Desktop additionally provides automatic high-DPI rendering, **C** to cancel the 
 
 ## Models and releases
 
-The local **v1.5.0** snapshot includes parallel mesh exporting in Web and Desktop, and the Linux installer is named `sago-desktop_1.5.0_amd64.deb`. NeuS2 is configured as a separate mesh-reconstruction runtime. This snapshot has not been published to GitHub.
+The latest Linux installer is [**v1.5.1**](https://github.com/leviome/SAGO/releases/tag/v1.5.1), named `sago-desktop_1.5.1_amd64.deb`. Web and Desktop support **Export assets**: Gaussian PLY, colored point cloud PLY and mesh OBJ in one folder per object, with a batch ZIP. Multiple objects reconstruct in parallel. NeuS2 is configured as a separate mesh exporting runtime.
 
 
 Model checkpoints, scenes, virtual environments, caches, generated outputs (apart from the curated gallery in `assets/`), and Debian packages are **not stored in Git**. Download model weights from the upstream projects as described in each application's model guide:
@@ -76,7 +77,7 @@ Model checkpoints, scenes, virtual environments, caches, generated outputs (apar
 - [Web model setup](SAGO_web/models/README.md)
 - [Desktop SAM2 setup](SAGO_desktop/models/README.md)
 
-Installers are published as GitHub Release assets. The current Linux installer is available in [Desktop v1.1.11](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.11). Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.11`, so Web and Desktop can be versioned independently. Desktop 1.1.7 and later installers include Qt and download SAM2 weights automatically on first entering segmentation prompts. Download progress, resume and retry are supported; checkpoints are verified and cached locally. Earlier Desktop installers bundled SAM2 weights.
+Installers are published as GitHub Release assets. The current Linux installer is available in [v1.5.1](https://github.com/leviome/SAGO/releases/tag/v1.5.1). Release tags use application prefixes, such as `web-v2.0` and `desktop-v1.1.11`, so Web and Desktop can be versioned independently. Desktop 1.1.7 and later installers include Qt and download SAM2 weights automatically on first entering segmentation prompts. Download progress, resume and retry are supported; checkpoints are verified and cached locally. Earlier Desktop installers bundled SAM2 weights.
 
 The former standalone Web repository has been consolidated here. Its commit history is retained in this repository; the previous v2.0 snapshot is available under `legacy-web-v2.0`. Earlier commits remain accessible through the retained history. New development and releases belong to `leviome/SAGO`.
 

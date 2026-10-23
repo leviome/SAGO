@@ -50,6 +50,18 @@ class ServerTest(unittest.TestCase):
             time.sleep(.01)
         self.fail('job timed out')
 
+    def test_asset_downloads_allow_final_files_only(self):
+        folder=self.engine.output/('assets-'+'c'*32);obj=folder/'ID_2';obj.mkdir(parents=True)
+        for name in ('gaussians.ply','point_cloud.ply','ID_2_Duck.obj'):
+            (obj/name).write_text('test')
+            response=self.client.get('/downloads/'+obj.relative_to(self.engine.output).as_posix()+'/'+name)
+            self.assertEqual(response.status_code,200);response.close()
+        (folder/'assets.zip').write_bytes(b'zip')
+        response=self.client.get('/downloads/'+folder.name+'/assets.zip',query_string={'filename':'SAGO_assets.zip'})
+        self.assertEqual(response.status_code,200);self.assertIn('SAGO_assets.zip',response.headers['Content-Disposition']);response.close()
+        for path in ('manifest.json','.work/ID_2/runtime/raw.obj','ID_2/secret.ply','../outside.zip'):
+            self.assertEqual(self.client.get('/downloads/'+folder.name+'/'+path).status_code,404)
+
     def test_nested_mesh_download_and_private_work_files(self):
         folder=self.engine.output/('mesh-'+'a'*32)/'ID_3';folder.mkdir(parents=True)
         (folder/'ID_3_Duck.obj').write_text('v 0 0 0\nf 1 1 1\n')

@@ -177,6 +177,9 @@ def generate_mesh(engine, data, progress, cancel):
     if any(key not in by_id for key in requested):
         raise ValueError('Object IDs changed; select the mesh objects again')
     objects = sorted((by_id[key] for key in set(requested)), key=lambda obj: obj['number'])
+    include_assets = data.get('include_assets', False)
+    if type(include_assets) is not bool:
+        raise ValueError('Invalid asset export option')
     options = settings(data)
     started = time.perf_counter()
     engine.output.mkdir(parents=True, exist_ok=True)
@@ -185,7 +188,7 @@ def generate_mesh(engine, data, progress, cancel):
     with tempfile.TemporaryDirectory(prefix='mesh-check-', dir=engine.output) as temporary:
         run_process([str(options['python_executable']), str(ROOT/'scripts/neus2-mesh.py'),
             '--root', str(options['neus2_root']), '--probe'], temporary, Path(temporary)/'probe.log', progress, cancel)
-    batch = engine.output/('mesh-'+uuid.uuid4().hex)
+    batch = engine.output/(('assets-' if include_assets else 'mesh-')+uuid.uuid4().hex)
     batch.mkdir()
     # Rendering stays on the engine thread. Each reconstruction worker owns an
     # independent external process and directory; no engine/GPU tensors cross threads.
@@ -205,9 +208,9 @@ def generate_mesh(engine, data, progress, cancel):
     def report(index, value, message):
         with lock:
             values[index] = max(values[index], min(100, value))
-            progress(round(sum(values)/len(objects)), f"ID {objects[index]['number']} · {message}")
+            progress(round(sum(values)/len(objects)*(.95 if include_assets else 1)), f"ID {objects[index]['number']} · {message}")
 
-    def reconstruct(index, obj, pipeline, count, filename):
+    def reconstruct(index, obj, pipeline, count, filename, assets):
         try:
             check_cancel(batch_cancel)
             pipeline.prepare_dataset()
@@ -222,6 +225,11 @@ def generate_mesh(engine, data, progress, cancel):
             item = dict(id=obj['id'], number=obj['number'], name=obj['name'], filename=filename,
                 saved_path=str(stats.path.resolve()), download='/downloads/'+quote(relative, safe='/')+'?filename='+quote(filename, safe=''),
                 vertices=stats.vertices, faces=stats.faces, views=count, coordinate_space='scene')
+            if assets is not None:
+                from backend.assets_export import file_record
+                item.update(assets)
+                item['files'].append(file_record(engine.output, stats.path, 'mesh'))
+                item['directory'] = str(stats.path.parent.resolve())
             report(index, 100, 'Mesh exported')
             return item
         except BaseException as error:
@@ -243,13 +251,19 @@ def generate_mesh(engine, data, progress, cancel):
                     filename = f"ID_{obj['number']}_{stem}.obj"
                     folder = batch/f"ID_{obj['number']}"
                     folder.mkdir()
+                    work = batch/'.work'/folder.name if include_assets else folder
+                    assets = None
+                    if include_assets:
+                        from backend.assets_export import save_object_assets
+                        report(index, 0, 'Saving Gaussian and point cloud assets')
+                        assets = save_object_assets(engine, selection, folder, batch_cancel)
                     report(index, 0, 'Preparing mesh views')
-                    count = render_dataset(engine, selection, folder/'dataset', options,
+                    count = render_dataset(engine, selection, work/'dataset', options,
                         lambda value, message, i=index: report(i, value*.3, message), batch_cancel)
-                    pipeline = MeshDistillation(folder/'dataset', folder/'reconstruction',
+                    pipeline = MeshDistillation(work/'dataset', work/'reconstruction',
                         name=f"ID_{obj['number']}", output_obj=folder/filename,
                         **{key:options[key] for key in ('neus2_root','python_executable','network','steps','marching_cubes_resolution')})
-                    futures.append(pool.submit(reconstruct, index, obj, pipeline, count, filename))
+                    futures.append(pool.submit(reconstruct, index, obj, pipeline, count, filename, assets))
                 items = [future.result() for future in futures]
             except BaseException:
                 stopped.set()
@@ -259,13 +273,29 @@ def generate_mesh(engine, data, progress, cancel):
         check_cancel(cancel)
         result = dict(items=items, generation_seconds=time.perf_counter()-started,
             output_directory=str(batch.resolve()), coordinate_space='scene', format='obj', parallel_jobs=workers)
+        if include_assets:
+            result.update(format='assets', filename='SAGO_assets.zip',
+                archive_path=str((batch/'assets.zip').resolve()),
+                download='/downloads/'+batch.name+'/assets.zip?filename=SAGO_assets.zip',
+                point_cloud_description='Gaussian centers with view-independent degree-zero SH colors')
         (batch/'manifest.json').write_text(json.dumps(result, ensure_ascii=False, indent=2)+'\n')
+        if include_assets:
+            from backend.assets_export import archive_assets
+            progress(97, 'Packaging object assets')
+            archive_assets(batch, items, cancel)
+            check_cancel(cancel)
+        result['generation_seconds'] = time.perf_counter()-started
         progress(100, 'Mesh export complete')
         return result
     except BaseException as error:
         # Never present a partial batch as a completed export. Keep logs/data for debugging.
         for path in batch.glob('ID_*/*.obj'):
             path.unlink(missing_ok=True)
+        if include_assets:
+            for path in batch.glob('ID_*/*.ply'):
+                path.unlink(missing_ok=True)
+            (batch/'assets.zip').unlink(missing_ok=True)
+            (batch/'manifest.json').unlink(missing_ok=True)
         if failures and isinstance(error, Cancelled):
             raise failures[0]
         raise

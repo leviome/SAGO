@@ -27,14 +27,14 @@ Run source and build commands from `SAGO_desktop/`. Checkpoints and virtual envi
 
 ## Debian package
 
-The local v1.5.0 build adds parallel selected-object mesh export and labels the UI as **Mesh exporting**, with configurable parallel jobs, reconstruction settings, progress, cancellation, and native save dialogs. It also includes the GaussianRAG API prototype from v1.1.12. NeuS2 remains a separate runtime dependency and is not bundled. It awaits user validation and is not published. The latest published installer remains v1.1.11.
+Desktop **v1.5.1** adds **Export assets**: each selected object is saved in one folder with its Gaussian PLY, colored point cloud PLY and reconstructed mesh OBJ, plus a ZIP for the whole batch. It includes the parallel **Mesh exporting** workflow introduced in v1.5.0 and the GaussianRAG API prototype from v1.1.12. NeuS2 remains a separate mesh exporting runtime and is not bundled. SAM2 weights remain external and download on first use.
 
 Desktop **1.1.11** adds four-view CLIP semantic object retrieval with automatic top-match coloring and an up-aligned 3D bbox. It also includes Cube/cylinder foreground completion, Esc to exit, black/white backgrounds, live right-drag panning and WASD roaming. Model weights remain external and are downloaded on first use.
 
-Download `sago-desktop_1.1.11_amd64.deb` and its checksum from the [Desktop release](https://github.com/leviome/SAGO/releases/tag/desktop-v1.1.11). Run the installation command from the download directory. A local build writes the installer under `dist/`.
+Download `sago-desktop_1.5.1_amd64.deb` and its checksum from the [Desktop release](https://github.com/leviome/SAGO/releases/tag/v1.5.1). Run the installation command from the download directory. A local build writes the installer under `dist/`.
 
 ```bash
-sudo dpkg -i ./sago-desktop_1.1.11_amd64.deb
+sudo dpkg -i ./sago-desktop_1.5.1_amd64.deb
 # If system libraries are missing, let apt resolve them:
 sudo apt-get -f install
 sago
@@ -183,3 +183,13 @@ The NeuS2 directory must contain its compiled `pyngp` extension under `build*`, 
 Defaults are **512 × 512 images, 72 views per orbit (288 total), 15,000 training steps, and a 512³ extraction grid**. These settings are independent of GIF settings and require substantially more time and GPU memory than segmentation; lower view counts, training steps or grid resolution can be used for a quick test. Multiple selected objects are reconstructed in parallel by independent workers (default **2**, configurable **1–4** under **Parallel exports**). More concurrent jobs use more GPU memory; rendering remains on the main engine thread and overlaps reconstruction. Results remain ordered by object ID. Progress aggregates all objects; **Cancel** terminates every active worker, and a failed worker cancels the rest of the batch. The `SAGO_NEUS2_ROOT` and `SAGO_NEUS2_PYTHON` environment variables remain supported as compatibility aliases.
 
 Meshes are saved under the application's output directory as `mesh-<run-id>/ID_<number>/ID_<number>_<name>.obj`. Web shows download links and saved paths; Desktop offers **Save as…** and **Open output folder**. The run directory also contains rendered inputs, camera data, normalization metadata, training logs and a result manifest. Failed/cancelled runs keep diagnostic files but remove final OBJ exports from that batch; their temporary raw mesh files are not offered as completed exports. No NeuS2 training checkpoints are bundled into the application.
+
+### Export object assets
+
+Select **Export assets** in the Export panel, choose saved object IDs, and start export. The same mesh settings and parallel reconstruction workers are used. Each object gets one folder containing:
+
+- `gaussians.ply`: the object's complete Gaussian splat parameters, including spherical harmonics, opacity, scale and rotation.
+- `point_cloud.ply`: conventional XYZ/RGB points at the selected Gaussian centers. RGB comes from degree-zero spherical harmonics; this is not a mesh surface sample.
+- `ID_<number>_<name>.obj`: the reconstructed triangle mesh, in the same scene coordinates as the other two files.
+
+The run is saved as `outputs/assets-<run-id>/ID_<number>/` (relative to the application's configured output directory). A manifest records object IDs and file paths. Web provides individual downloads and **Download all assets ZIP**; Desktop provides individual **Save as…**, **Save assets ZIP…**, and **Open output folder**. The ZIP contains the three asset files per object and the manifest, excluding intermediate renders and training data. Intermediate files are kept separately under `.work/` for diagnosis. Asset export includes mesh reconstruction and requires the configured mesh exporting runtime. Cancellation or failure removes that batch's final assets. Original IDs and scene knowledge are unchanged.

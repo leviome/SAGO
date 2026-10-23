@@ -4,6 +4,11 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 ZH = {
+ 'Export assets':'导出资产',
+ 'Save each object’s Gaussian PLY, point cloud PLY and mesh in one folder, with a ZIP download.':'每个物体保存高斯 PLY、点云 PLY 和 Mesh 到同一个文件夹，并提供 ZIP 下载。',
+ 'Asset export complete':'资产导出完成',
+ 'Exported assets for {0} objects · {1} s':'已导出 {0} 个物体资产 · 用时 {1} 秒',
+ 'Save assets ZIP…':'保存资产 ZIP…',
  'Parallel exports':'并行任务数',
  'Each parallel job uses its own GPU memory':'每个并行任务独立占用显存',
  'Export object meshes':'导出物体 Mesh',

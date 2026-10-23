@@ -43,7 +43,7 @@ def main():
         debian=package/'DEBIAN';debian.mkdir()
         size=sum(p.stat().st_size for p in package.rglob('*') if p.is_file())//1024
         (debian/'control').write_text(f'''Package: sago-desktop
-Version: 1.5.0
+Version: 1.5.1
 Section: graphics
 Priority: optional
 Architecture: amd64
@@ -54,12 +54,13 @@ Installed-Size: {size}
 Description: Native Qt Gaussian segmentation desktop application
  SAM2 point and box prompts, Virtual Drone 3D segmentation,
  multi-object IDs, corrections, ground calibration, GIF and OBJ mesh export.
+ Gaussian splat, colored point cloud and mesh asset bundles.
  Requires an NVIDIA driver and a configured CUDA Python runtime.
 ''')
         for name in ('postinst','postrm'):
             script=debian/name
             script.write_text('#!/bin/sh\nset -e\nif command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi\nif command -v update-mime-database >/dev/null 2>&1; then update-mime-database /usr/share/mime || true; fi\nexit 0\n');script.chmod(0o755)
-        output=args.output/'sago-desktop_1.5.0_amd64.deb'
+        output=args.output/'sago-desktop_1.5.1_amd64.deb'
         subprocess.run(['dpkg-deb','--root-owner-group','-Zzstd','-z1','--build',str(package),str(output)],check=True)
         print(output)
 

@@ -165,9 +165,10 @@ def create_app(checkpoint, output=None, engine=None):
     @app.get('/downloads/<path:name>')
     def download(name):
         # Only generated exports, never arbitrary server paths.
-        if re.fullmatch(r'mesh-[0-9a-f]{32}/ID_[1-9][0-9]*/[^/\\]+\.obj', name):
+        asset = re.fullmatch(r'assets-[0-9a-f]{32}/(?:assets\.zip|ID_[1-9][0-9]*/(?:gaussians\.ply|point_cloud\.ply|[^/\\]+\.obj))', name)
+        if asset or re.fullmatch(r'mesh-[0-9a-f]{32}/ID_[1-9][0-9]*/[^/\\]+\.obj', name):
             filename = request.args.get('filename', Path(name).name)
-            if (not filename.endswith('.obj') or len(filename) > 180
+            if (Path(filename).suffix != Path(name).suffix or len(filename) > 180
                     or any(c in filename for c in '/\\') or any(ord(c) < 32 for c in filename)):
                 filename = Path(name).name
             return send_from_directory(engine.output, name, as_attachment=True, download_name=filename)

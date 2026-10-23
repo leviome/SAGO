@@ -133,6 +133,14 @@ class NativeTest(unittest.TestCase):
             dialog.reject()
         QTimer.singleShot(50,close_report)
         done(dict(items=[dict(filename='duck.obj',saved_path=str(path),vertices=100,faces=200)],generation_seconds=1.5,output_directory=self.temp.name))
+        with patch.object(w,'call',return_value=True) as call:
+            QTimer.singleShot(50,choose);w.export_mesh(True)
+        action,data,done=call.call_args.args
+        self.assertTrue(data['include_assets']);self.assertNotIn('include_assets',w.settings['mesh_export'])
+        files=[dict(filename=name,saved_path=str(path)) for name in ('gaussians.ply','point_cloud.ply','duck.obj')]
+        QTimer.singleShot(50,close_report)
+        done(dict(format='assets',items=[dict(filename='duck.obj',saved_path=str(path),vertices=100,faces=200,files=files)],generation_seconds=1.5,output_directory=self.temp.name,archive_path=str(path),filename='assets.zip'))
+
 
     def test_semantic_build_search_and_edit_locks(self):
         w=self.window;spin_until(lambda:not w.bridge.busy)

@@ -1,5 +1,16 @@
 // UI strings use Chinese source keys; placeholders preserve user data verbatim.
 export const messages = {
+ "导出资产":"Export assets",
+ "每个物体保存高斯 PLY、点云 PLY 和 Mesh 到同一个文件夹，并提供 ZIP 下载。":"Save each object\u2019s Gaussian PLY, point cloud PLY and mesh in one folder, with a ZIP download.",
+ "开始导出资产":"Start asset export",
+ "资产导出完成":"Asset export complete",
+ "下载全部资产 ZIP":"Download all assets ZIP",
+ "已导出 {0} 个物体资产 · 用时 {1} 秒":"Exported assets for {0} objects \u00b7 {1} s",
+ "正在打包物体资产":"Packaging object assets",
+ "ID {0} · 正在保存高斯与点云资产":"ID {0} \u00b7 Saving Gaussian and point cloud assets",
+ "无效的资产导出选项":"Invalid asset export option",
+ "物体坐标或颜色无效，无法导出资产":"Invalid object coordinates or colors for asset export",
+
  "并行任务数":"Parallel exports",
  "每个并行任务独立占用显存":"Each parallel job uses its own GPU memory",
  "全不选":"Select none",
@@ -584,6 +595,17 @@ export const messages = {
   "分割失败，请调整提示重试": "Segmentation failed. Adjust the prompts and retry."
 };
 export const backendKeys = [
+ "导出资产",
+ "每个物体保存高斯 PLY、点云 PLY 和 Mesh 到同一个文件夹，并提供 ZIP 下载。",
+ "开始导出资产",
+ "资产导出完成",
+ "下载全部资产 ZIP",
+ "已导出 {0} 个物体资产 · 用时 {1} 秒",
+ "正在打包物体资产",
+ "ID {0} · 正在保存高斯与点云资产",
+ "无效的资产导出选项",
+ "物体坐标或颜色无效，无法导出资产",
+
  "全不选",
  "Mesh 导出已取消",
  "请为 Mesh 导出选择至少一个前景物体 ID",

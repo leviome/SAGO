@@ -228,6 +228,8 @@ class MainWindow(QMainWindow):
         exports=self.section(right,'Export')
         for key,kind in (('Export object PLY','ply'),('Export 3D mask','mask'),('Export image','image'),('Export 2D mask','mask2d')):
             exports.addWidget(self.button(key,lambda k=kind:self.export(k)))
+        self.assets_export=self.button('Export assets',lambda:self.export_mesh(True))
+        exports.addWidget(self.assets_export)
         self.mesh_export=self.button('Export object meshes',self.export_mesh)
         exports.addWidget(self.mesh_export)
         self.gif_all=self.button('Export all object GIFs',lambda:self.export_gif('all'))
@@ -463,6 +465,7 @@ class MainWindow(QMainWindow):
         for button in (self.complete_cube,self.complete_cylinder):button.setEnabled(bool(self.state.get('selected')) and not busy and not editing)
         self.gif_current.setEnabled(bool(self.state.get('selected')) and not busy)
         self.mesh_export.setEnabled(bool(self.state.get('objects')) and not busy)
+        self.assets_export.setEnabled(self.mesh_export.isEnabled())
         self.gif_all.setEnabled(bool(self.state.get('objects')) and not busy)
         semantic_ready=scene and bool(self.state.get('objects')) and not busy and not editing
         self.rag_build.setEnabled(semantic_ready);self.rag_question.setEnabled(semantic_ready);self.rag_describe.setEnabled(semantic_ready)
@@ -947,11 +950,11 @@ class MainWindow(QMainWindow):
                 self.object_action('save_ids',after=lambda:QTimer.singleShot(0,self.close));return
         self.navigation_timer.stop();self.navigation_keys.clear();self.quality_timer.stop();self.preview_timer.stop();self.resize_timer.stop();self.wheel_timer.stop();self.bridge.close()
 
-    def export_mesh(self):
+    def export_mesh(self,include_assets=False):
         if self.bridge.busy or not self.state.get('objects'):return
-        dialog=QDialog(self);dialog.setWindowTitle(self.text('Export object meshes'));dialog.resize(540,760)
+        dialog=QDialog(self);dialog.setWindowTitle(self.text('Export assets' if include_assets else 'Export object meshes'));dialog.resize(540,760)
         layout=QVBoxLayout(dialog)
-        note=self.label('Choose objects; export one OBJ per ID. Selected objects are reconstructed in parallel; this takes longer than segmentation.');note.setWordWrap(True);layout.addWidget(note)
+        note=self.label('Save each object’s Gaussian PLY, point cloud PLY and mesh in one folder, with a ZIP download.' if include_assets else 'Choose objects; export one OBJ per ID. Selected objects are reconstructed in parallel; this takes longer than segmentation.');note.setWordWrap(True);layout.addWidget(note)
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setMinimumHeight(120);scroll.setMaximumHeight(220)
         content=QWidget();choices=QVBoxLayout(content);checks=[]
         for obj in self.state['objects']:
@@ -982,15 +985,19 @@ class MainWindow(QMainWindow):
         data=dict(neus2_root=root.text().strip(),neus2_python=python.text().strip(),network=network.text().strip(),steps=steps.value(),resolution=resolution.currentData(),size=size.currentData(),views_per_orbit=views.value(),parallel_jobs=parallel.value())
         self.settings['mesh_export']=data.copy();write_config(self.settings)
         data['ids']=[key for key,c in checks if c.isChecked()]
+        data['include_assets']=include_assets
         def done(result):
-            report=QDialog(self);report.setWindowTitle(self.text('Mesh export complete'));report.resize(600,440);body=QVBoxLayout(report)
-            body.addWidget(QLabel(self.text('Exported {0} meshes · {1} s').format(len(result['items']),f"{result['generation_seconds']:.2f}")))
+            assets=result.get('format')=='assets'
+            report=QDialog(self);report.setWindowTitle(self.text('Asset export complete' if assets else 'Mesh export complete'));report.resize(600,440);body=QVBoxLayout(report)
+            body.addWidget(QLabel(self.text('Exported assets for {0} objects · {1} s' if assets else 'Exported {0} meshes · {1} s').format(len(result['items']),f"{result['generation_seconds']:.2f}")))
             scroller=QScrollArea();scroller.setWidgetResizable(True);content=QWidget();rows=QVBoxLayout(content)
             for item in result['items']:
                 path=Path(item['saved_path']);label=QLabel(f"{item['filename']}\n"+self.text('{0} vertices · {1} faces').format(item['vertices'],item['faces'])+f"\n{path}")
                 label.setWordWrap(True);label.setTextFormat(Qt.PlainText);label.setTextInteractionFlags(Qt.TextSelectableByMouse);rows.addWidget(label)
-                rows.addWidget(self.button('Save as…',lambda checked=False,p=path,n=item['filename']:self.save_asset(p,n)))
+                for file in item['files'] if assets else [item]:
+                    rows.addWidget(self.button(file['filename']+' · '+self.text('Save as…'),lambda p=Path(file['saved_path']),n=file['filename']:self.save_asset(p,n)))
             scroller.setWidget(content);body.addWidget(scroller)
+            if assets:body.addWidget(self.button('Save assets ZIP…',lambda:self.save_asset(Path(result['archive_path']),result['filename'])))
             body.addWidget(self.button('Open output folder',lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(result['output_directory']))))
             close=QDialogButtonBox(QDialogButtonBox.Close);close.rejected.connect(report.reject);body.addWidget(close);report.exec()
         self.call('mesh',data,done)
